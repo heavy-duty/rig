@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Dependency-free CLI assertions. Run: bash test/cli.sh
+# Deliberately no `set -e` — the harness asserts on failing commands.
+set -u
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PASS=0 FAIL=0
+
+# check <desc> <want_exit> <want_substr> <cmd...>
+# Runs cmd, asserts exit code and (if non-empty) that combined output
+# contains want_substr.
+check() {
+  local desc="$1" want="$2" substr="$3"; shift 3
+  local out rc
+  out="$("$@" 2>&1)"; rc=$?
+  if [ "$rc" -ne "$want" ]; then
+    echo "FAIL: $desc — exit $rc, wanted $want"
+    printf '%s\n' "$out" | sed 's/^/    /'
+    FAIL=$((FAIL + 1)); return
+  fi
+  if [ -n "$substr" ] && ! printf '%s' "$out" | grep -qF "$substr"; then
+    echo "FAIL: $desc — output missing '$substr'"
+    printf '%s\n' "$out" | sed 's/^/    /'
+    FAIL=$((FAIL + 1)); return
+  fi
+  echo "ok: $desc"; PASS=$((PASS + 1))
+}
+
+check "no args shows usage, exit 2"      2 "usage:" "$ROOT/bin/deployor"
+check "--help exits 0"                   0 "usage:" "$ROOT/bin/deployor" --help
+check "help exits 0"                     0 "usage:" "$ROOT/bin/deployor" help
+check "unknown command exits 2"          2 "unknown command" "$ROOT/bin/deployor" frobnicate
+check "bare coolify shows usage, exit 2" 2 "usage:" "$ROOT/bin/deployor" coolify
+
+echo "---"
+echo "$PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]
