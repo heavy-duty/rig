@@ -66,7 +66,11 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 log "installing base packages"
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates unattended-upgrades
+# openssh-server: a rig box is managed over SSH (Coolify SSHes in as root),
+# and the hardening drop-in below targets /etc/ssh/sshd_config.d/ — which
+# only exists once the package is installed. Cloud images ship it; pristine
+# container/VM images (the Incus rehearsal) do not.
+apt-get install -y -qq curl ca-certificates unattended-upgrades openssh-server
 
 # enable periodic unattended upgrades (canonical file; idempotent overwrite)
 cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
