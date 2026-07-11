@@ -25,11 +25,11 @@ check() {
   echo "ok: $desc"; PASS=$((PASS + 1))
 }
 
-check "no args shows usage, exit 2"      2 "usage:" "$ROOT/bin/deployor"
-check "--help exits 0"                   0 "usage:" "$ROOT/bin/deployor" --help
-check "help exits 0"                     0 "usage:" "$ROOT/bin/deployor" help
-check "unknown command exits 2"          2 "unknown command" "$ROOT/bin/deployor" frobnicate
-check "bare coolify shows usage, exit 2" 2 "usage:" "$ROOT/bin/deployor" coolify
+check "no args shows usage, exit 2"      2 "usage:" "$ROOT/bin/rig"
+check "--help exits 0"                   0 "usage:" "$ROOT/bin/rig" --help
+check "help exits 0"                     0 "usage:" "$ROOT/bin/rig" help
+check "unknown command exits 2"          2 "unknown command" "$ROOT/bin/rig" frobnicate
+check "bare coolify shows usage, exit 2" 2 "usage:" "$ROOT/bin/rig" coolify
 
 check "bootstrap: role required, exit 2"   2 "role required"  "$ROOT/commands/bootstrap.sh"
 check "bootstrap: --help exits 0"          0 "usage:"         "$ROOT/commands/bootstrap.sh" --help

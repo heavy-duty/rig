@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# deployor bootstrap — OS plumbing for a pristine Debian box.
+# rig bootstrap — OS plumbing for a pristine Debian box.
 # Convergent: safe to re-run; a second run changes nothing.
 set -euo pipefail
 
-log()  { printf 'deployor-bootstrap: %s\n' "$*"; }
-warn() { printf 'deployor-bootstrap: WARNING: %s\n' "$*" >&2; }
-die()  { printf 'deployor-bootstrap: ERROR: %s\n' "$1" >&2; exit "${2:-1}"; }
+log()  { printf 'rig-bootstrap: %s\n' "$*"; }
+warn() { printf 'rig-bootstrap: WARNING: %s\n' "$*" >&2; }
+die()  { printf 'rig-bootstrap: ERROR: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 usage() {
   cat <<'EOF'
-usage: deployor bootstrap <control-plane|workload> [--hostname <name>] [--ts-tag <tag>]
+usage: rig bootstrap <control-plane|workload> [--hostname <name>] [--ts-tag <tag>]
 
   --hostname  tailnet hostname (default: the role name)
   --ts-tag    tailnet tag to advertise (default: tag:server)
@@ -75,7 +75,7 @@ APT::Periodic::Unattended-Upgrade "1";
 EOF
 
 # --- sshd hardening (restart only when the drop-in actually changed) ---------
-DROPIN=/etc/ssh/sshd_config.d/99-deployor.conf
+DROPIN=/etc/ssh/sshd_config.d/99-rig.conf
 TMP="$(mktemp)"
 cat > "$TMP" <<'EOF'
 PermitRootLogin prohibit-password
@@ -104,5 +104,5 @@ fi
 
 log "done — role ${ROLE}, hostname ${TS_HOSTNAME}"
 if [ "$ROLE" = "control-plane" ]; then
-  log "next: deployor coolify install --version <pin>"
+  log "next: rig coolify install --version <pin>"
 fi

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# deployor coolify install — pinned Coolify install; AUTOUPDATE=false so the
+# rig coolify install — pinned Coolify install; AUTOUPDATE=false so the
 # platform never self-updates underneath its operators. Upgrades are an
 # explicit act.
 set -euo pipefail
 
-log() { printf 'deployor-coolify: %s\n' "$*"; }
-die() { printf 'deployor-coolify: ERROR: %s\n' "$1" >&2; exit "${2:-1}"; }
+log() { printf 'rig-coolify: %s\n' "$*"; }
+die() { printf 'rig-coolify: ERROR: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 usage() {
   cat <<'EOF'
-usage: deployor coolify install --version <pin>
+usage: rig coolify install --version <pin>
 
 Installs Coolify at exactly <pin> (e.g. 4.1.2) with AUTOUPDATE=false.
 Control-plane box only. The version pin is required — you state the floor

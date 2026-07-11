@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# deployor installer — intended for: curl -fsSL .../install.sh | bash
+# rig installer — intended for: curl -fsSL .../install.sh | bash
 #
-# Downloads the deployor repo tarball, installs the whole tree under $DEST,
-# and puts a `deployor` symlink on PATH via $BINDIR. Re-run any time to
+# Downloads the rig repo tarball, installs the whole tree under $DEST,
+# and puts a `rig` symlink on PATH via $BINDIR. Re-run any time to
 # upgrade.
 
-REPO="${DEPLOYOR_REPO:-claude-hdb/deployor}"
-REF="${DEPLOYOR_REF:-main}"
-DEST="${DEPLOYOR_HOME:-$HOME/.local/share/deployor}"
+REPO="${RIG_REPO:-heavy-duty/rig}"
+REF="${RIG_REF:-main}"
+DEST="${RIG_HOME:-$HOME/.local/share/rig}"
 if [ "$(id -u)" -eq 0 ]; then
-  BINDIR="${DEPLOYOR_BIN:-/usr/local/bin}"
+  BINDIR="${RIG_BIN:-/usr/local/bin}"
 else
-  BINDIR="${DEPLOYOR_BIN:-$HOME/.local/bin}"
+  BINDIR="${RIG_BIN:-$HOME/.local/bin}"
 fi
 
-log() { printf 'deployor-install: %s\n' "$*"; }
-warn() { printf 'deployor-install: WARNING: %s\n' "$*" >&2; }
-die() { printf 'deployor-install: ERROR: %s\n' "$*" >&2; exit 1; }
+log() { printf 'rig-install: %s\n' "$*"; }
+warn() { printf 'rig-install: WARNING: %s\n' "$*" >&2; }
+die() { printf 'rig-install: ERROR: %s\n' "$*" >&2; exit 1; }
 
 # --- prerequisites -----------------------------------------------------------
 command -v curl >/dev/null 2>&1 || die "curl is required but was not found."
@@ -31,19 +31,19 @@ trap cleanup EXIT
 
 URL="https://github.com/$REPO/archive/refs/heads/$REF.tar.gz"
 
-log "installing deployor ($REPO@$REF)"
+log "installing rig ($REPO@$REF)"
 log "downloading $URL"
-curl -fsSL "$URL" -o "$TMPDIR/deployor.tar.gz" \
+curl -fsSL "$URL" -o "$TMPDIR/rig.tar.gz" \
   || die "failed to download $URL"
 
 log "extracting archive"
-tar -xzf "$TMPDIR/deployor.tar.gz" -C "$TMPDIR" \
+tar -xzf "$TMPDIR/rig.tar.gz" -C "$TMPDIR" \
   || die "failed to extract archive"
 
-# GitHub archives extract to a single top-level dir like deployor-<ref>/
-EXTRACTED="$(find "$TMPDIR" -maxdepth 1 -type d -name 'deployor-*' | head -n1)"
-[ -n "$EXTRACTED" ] || die "could not find extracted deployor-* directory in archive"
-[ -f "$EXTRACTED/bin/deployor" ] || die "archive does not contain bin/deployor — is $REPO@$REF correct?"
+# GitHub archives extract to a single top-level dir like rig-<ref>/
+EXTRACTED="$(find "$TMPDIR" -maxdepth 1 -type d -name 'rig-*' | head -n1)"
+[ -n "$EXTRACTED" ] || die "could not find extracted rig-* directory in archive"
+[ -f "$EXTRACTED/bin/rig" ] || die "archive does not contain bin/rig — is $REPO@$REF correct?"
 
 # --- atomically replace $DEST --------------------------------------------------
 log "installing into $DEST"
@@ -51,12 +51,12 @@ rm -rf "$DEST"
 mkdir -p "$(dirname "$DEST")"
 mv "$EXTRACTED" "$DEST"
 
-chmod +x "$DEST/bin/deployor" "$DEST"/commands/*.sh
+chmod +x "$DEST/bin/rig" "$DEST"/commands/*.sh
 
-# --- put deployor on PATH ------------------------------------------------------
+# --- put rig on PATH ------------------------------------------------------
 mkdir -p "$BINDIR"
-ln -sf "$DEST/bin/deployor" "$BINDIR/deployor"
-log "linked $BINDIR/deployor -> $DEST/bin/deployor"
+ln -sf "$DEST/bin/rig" "$BINDIR/rig"
+log "linked $BINDIR/rig -> $DEST/bin/rig"
 
 # --- PATH check ----------------------------------------------------------------
 case ":$PATH:" in
@@ -67,4 +67,4 @@ case ":$PATH:" in
     ;;
 esac
 
-log "done — try: deployor --help"
+log "done — try: rig --help"
