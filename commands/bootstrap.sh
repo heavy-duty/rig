@@ -108,8 +108,23 @@ PermitRootLogin prohibit-password
 PasswordAuthentication no
 EOF
 if ! cmp -s "$TMP" "$DROPIN" 2>/dev/null || [ -e "$LEGACY_DROPIN" ]; then
+  BACKUP=""
+  [ -e "$DROPIN" ] && { BACKUP="$(mktemp)"; cp -a "$DROPIN" "$BACKUP"; }
   install -m 0644 "$TMP" "$DROPIN"
   rm -f "$LEGACY_DROPIN"   # sweep the losing file from already-bootstrapped boxes
+
+  # Validate the MERGED config BEFORE bouncing the daemon. On a box whose only
+  # door is SSH, `systemctl restart ssh` against a config sshd refuses to parse
+  # leaves no listener and no way back in. `sshd -t` parses everything sshd
+  # would parse — our drop-in, cloud-init's, and any third-party file — so a
+  # broken neighbour is caught here rather than after the door has shut.
+  if ! sshd -t 2>/dev/null; then
+    if [ -n "$BACKUP" ]; then cp -a "$BACKUP" "$DROPIN"; else rm -f "$DROPIN"; fi
+    rm -f "$TMP" "$BACKUP"
+    die "sshd rejects the merged config; drop-in rolled back, daemon untouched. Run 'sshd -t' to see which file is bad."
+  fi
+  rm -f "$BACKUP"
+
   systemctl restart ssh
   log "sshd hardening drop-in installed"
 else
