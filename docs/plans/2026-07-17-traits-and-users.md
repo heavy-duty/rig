@@ -411,3 +411,48 @@ git commit -m "docs: README identity model — traits, presets, fleet users, roo
   3. workstation: `bootstrap workstation` with no key → interactive login
      join, untagged asserted; with a tagged key's identity → refused and
      backed out.
+
+## Addendum (2026-07-17, post-implementation review)
+
+A high-effort adversarial review of the branch diff confirmed ten findings;
+all are fixed in the two `fix(...)` commits following the four task commits.
+The load-bearing corrections, recorded here because they refine the contracts
+above:
+
+- **The `rig` role is not an identity boundary.** `%rig`'s binary-scoped
+  NOPASSWD was root-equivalent through `sudo rig users apply` (write yourself
+  into `admin`, escalate). Identity management now gates its *invoker*:
+  `users apply`/`close-root` refuse a `SUDO_USER` who is not a `rig-admin`
+  member; direct root proceeds. Documented honestly in the README.
+- **Offboarding must out-revoke PAM.** A `!`-locked password does not block
+  pubkey auth under Debian's `UsePAM`; dropped users are now `usermod -L -e 1`
+  (account expiry — the switch PAM honors) and their `authorized_keys` is
+  renamed `.revoked-by-rig` (access revoked, data kept). Present users get
+  expiry cleared idempotently; the ledger keeps dropped users as
+  `name revoked` so `status` can tell the truth (`passwd -S` reporting is
+  gone — every rig password is locked by design, so it said nothing).
+- **Perms are converged state.** `.ssh`/`authorized_keys` ownership and mode
+  converge unconditionally every run; only the content write is cmp-guarded —
+  StrictModes treats perms as load-bearing, so must apply.
+- **`close-root`'s gate is StrictModes-shaped**: per-candidate checks (owner,
+  group/world-writable bits on home/`.ssh`/`authorized_keys`, real shell,
+  unexpired account), naming each failed check. It proves the admin door
+  *should* open, not that it does — the verify-in-a-separate-session advisory
+  stays load-bearing.
+- **`verify_effective_tag` grows the same back-out|keep discipline as
+  `verify_user_owned`**: an already-joined untagged box (possibly a
+  legitimate `join=login` machine) is refused *without* `tailscale logout` —
+  never back out state this run did not create. `verify_user_owned` now fails
+  closed on a poll timeout.
+- **The widened `permitrootlogin` acceptance is class-gated**: `no` is
+  hardened on `class=human`, but on `class=server` it is a refusal naming the
+  likely leftover `00-rig-users.conf` — a repurposed box must not silently
+  strand the control plane, and rig will not silently reopen a root door
+  either.
+- **`box` role is trait-aware**: on `host=no` boxes (incus absent by design)
+  it warns and skips rather than aborting the whole apply — a users file is
+  fleet-wide; its box grants bind only where VMs live. `host=yes` without
+  incus still dies at `box setup-host`.
+- **Parser hardening**: usernames validate against `^[a-z_][a-z0-9_-]{0,31}$`
+  in the all-errors-at-once pass (a `|` or useradd-hostile name can no longer
+  corrupt the stream or die mid-convergence).
