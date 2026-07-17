@@ -266,6 +266,75 @@ else
   echo "skip: runner status/remove/repoint non-root refusals (running as root)"
 fi
 
+check "bare users shows usage, exit 2"    2 "usage:"        "$ROOT/bin/rig" users
+check "users: bad subcommand exits 2"     2 "usage:"        "$ROOT/bin/rig" users frobnicate
+
+check "users apply: --help exits 0"       0 "usage:"        "$ROOT/commands/users-apply.sh" --help
+check "users apply: --file required"      2 "--file"        "$ROOT/commands/users-apply.sh"
+check "users apply: --file needs value"   2 "needs a value" "$ROOT/commands/users-apply.sh" --file
+check "users apply: missing file exits 2" 2 "cannot read"   "$ROOT/commands/users-apply.sh" --file /nonexistent/users
+check "users apply: unknown flag exits 2" 2 "unknown flag"  "$ROOT/commands/users-apply.sh" --nope
+check "users status: --help exits 0"      0 "usage:"        "$ROOT/commands/users-status.sh" --help
+
+# --- users file refusal matrix, through the sourced parser -------------------
+# Reaching the parser via the CLI stops at the root check; it is pure and
+# sourceable on purpose (repo precedent: assert_runner_repo, json_string_array),
+# so the refusals are proven here against fixtures, non-root and network-free.
+parse() { # parse <file> — the users-file parser, exactly as apply runs it
+  bash -c 'set -euo pipefail
+    . "$1/commands/lib/users-config.sh"
+    parse_users_file "$2"' _ "$ROOT" "$1"
+}
+FIX_OK="$(mktemp)"   # two operators; dan carries a second key on a repeat line
+FIX_BAD="$(mktemp)"  # rewritten per refusal below
+cat > "$FIX_OK" <<'USERS'
+# fleet operators
+dan      admin,box      ssh-ed25519 AAAAC3fixture dan@laptop
+dan      admin,box      ssh-ed25519 AAAAC3second dan@desk
+
+maria    rig            ssh-ed25519 AAAAC3fixture maria@mac
+USERS
+printf '%s\n' 'maria ops ssh-ed25519 AAAA maria@mac' > "$FIX_BAD"
+check "users parser: unknown role names the valid set" 1 "valid roles: admin rig box" parse "$FIX_BAD"
+printf '%s\n' 'dan admin ssh-ed25519 AAAA a' 'dan admin,box ssh-ed25519 BBBB b' > "$FIX_BAD"
+check "users parser: differing roles across one user's lines" 1 "roles must be identical" parse "$FIX_BAD"
+printf '%s\n' 'root admin ssh-ed25519 AAAA r' > "$FIX_BAD"
+check "users parser: root is refused" 1 "not a rig-managed user" parse "$FIX_BAD"
+printf '%s\n' 'dan admin' > "$FIX_BAD"
+check "users parser: malformed line is refused" 1 "malformed" parse "$FIX_BAD"
+check "users parser: valid file emits dan (both keys' roles agree)" \
+  0 "dan|admin,box|ssh-ed25519 AAAAC3second dan@desk" parse "$FIX_OK"
+check "users parser: valid file emits maria too" 0 "maria|rig|ssh-ed25519" parse "$FIX_OK"
+# ALL errors in ONE pass: a bad file costs one fix cycle, not one per error.
+# A single invocation, both messages asserted from its one stderr.
+printf '%s\n' 'root admin ssh-ed25519 AAAA r' 'maria ops ssh-ed25519 AAAA m' > "$FIX_BAD"
+MULTI_ERRS="$(mktemp)"
+parse "$FIX_BAD" 2> "$MULTI_ERRS"; multi_rc=$?
+check "users parser: multi-error file exits 1"       0 "" test "$multi_rc" -eq 1
+check "users parser: one run reports the root line"  0 "" grep -q "not a rig-managed user" "$MULTI_ERRS"
+check "users parser: same run reports the bad role"  0 "" grep -q "unknown role" "$MULTI_ERRS"
+rm -f "$MULTI_ERRS"
+
+if [ "$(id -u)" -ne 0 ]; then
+  # A VALID fixture proves the whole file-validation pass sits before the
+  # root check — a parse failure here would exit 2, not 1.
+  check "users apply: refuses non-root"  1 "must run as root" "$ROOT/commands/users-apply.sh" --file "$FIX_OK"
+  check "users status: refuses non-root" 1 "must run as root" "$ROOT/commands/users-status.sh"
+else
+  echo "skip: users non-root refusals (running as root)"
+fi
+rm -f "$FIX_OK" "$FIX_BAD"
+
+# Validate-then-apply: `visudo -c` must pass before anything lands in
+# /etc/sudoers.d — a bad drop-in takes down ALL of sudo, locking every admin
+# out of the escalation path apply just granted. Assert the order in the file,
+# matching the calls rather than comments (repo precedent: the runner-install
+# repo-guard ordering check). Defaults fail closed.
+visudo_at="$(grep -n 'visudo -c' "$ROOT/commands/users-apply.sh" | head -n1 | cut -d: -f1)"
+sudoers_at="$(grep -nE 'install .*sudoers\.d/rig-roles' "$ROOT/commands/users-apply.sh" | head -n1 | cut -d: -f1)"
+check "users apply: visudo -c precedes the sudoers install" \
+  0 "" test "${visudo_at:-999999}" -lt "${sudoers_at:-0}"
+
 # The dump script ships to control-plane boxes as an embedded heredoc. A syntax
 # error in it would be invisible here and would first surface at 04:00 on a live
 # control plane. Extract it and syntax-check what actually gets written.

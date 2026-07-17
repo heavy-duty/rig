@@ -42,6 +42,18 @@ commands:
       re-register, reusing the binary already on the box. Needs a removal
       token for the old repo and a registration token for the new one.
       Run as root.
+  users apply --file <path>
+      Converge named operator accounts from a declarative users file, on
+      every class: groups by role (admin/rig/box), passwords locked always,
+      authorized_keys made exact, visudo-gated sudoers rules. Users dropped
+      from the file are locked, never deleted. '-' reads stdin. Run as root.
+  users status
+      Roles (derived from actual group membership), key counts and lock
+      state for the rig-managed users. Reads the box only. Run as root.
+  users close-root
+      Shut root SSH on a class=human box once an admin key works. Refuses
+      on class=server — root there is the control plane's automation door —
+      and while no admin holds a key. Run as root.
 
 install/upgrade:
   curl -fsSL https://raw.githubusercontent.com/heavy-duty/rig/main/install.sh | bash
@@ -96,6 +108,28 @@ case "$cmd" in
       repoint)
         shift
         exec "$ROOT/commands/runner-repoint.sh" "$@"
+        ;;
+      *)
+        usage >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  users)
+    shift
+    sub="${1:-}"
+    case "$sub" in
+      apply)
+        shift
+        exec "$ROOT/commands/users-apply.sh" "$@"
+        ;;
+      status)
+        shift
+        exec "$ROOT/commands/users-status.sh" "$@"
+        ;;
+      close-root)
+        shift
+        exec "$ROOT/commands/users-close-root.sh" "$@"
         ;;
       *)
         usage >&2
