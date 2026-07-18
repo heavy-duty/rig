@@ -76,6 +76,9 @@ gh label create "scope:runner"         --color C5DEF5 --description "runner-* �
 gh label create "scope:coolify"        --color C5DEF5 --description "coolify-* — Coolify and backup install" --force
 gh label create "scope:db"             --color C5DEF5 --description "db.sh — dump/restore" --force
 gh label create "scope:installer"      --color C5DEF5 --description "install.sh — how rig lands on a machine" --force
-gh label delete duplicate --yes; gh label delete invalid --yes; gh label delete question --yes
-gh label delete wontfix --yes; gh label delete "help wanted" --yes; gh label delete "good first issue" --yes
+# delete is not an upsert: a label that is already gone exits non-zero. Swallow
+# that, so this block converges on re-run instead of erroring after first success.
+for L in duplicate invalid question wontfix "help wanted" "good first issue"; do
+  gh label delete "$L" --yes 2>/dev/null || true
+done
 ```
