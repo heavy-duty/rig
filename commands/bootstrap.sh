@@ -531,7 +531,30 @@ if [ "$HOST" = "yes" ]; then
     # else — a warning, never an abort: box is the host extra, the OS+tailnet core
     # is already done.
     if curl -fsSL "$BOX_INSTALL_URL" | BOX_YES=1 bash; then
-      log "box installed and host set up — mint guest boxes with 'box new'"
+      # Don't trust the exit code — prove the effective state (issue #12). An
+      # installer can exit 0 having done less than it claims: box's setup-host
+      # is written for a sudo-capable user, and one of its paths exits 0 after
+      # only adding a group, asking for a re-login. That is the sshd first-wins
+      # bug's exact shape — asserting what was REQUESTED (here: the installer's
+      # claimed success) instead of what actually TOOK.
+      # Two proofs, one claim each. `command -v box` proves the CLI landed
+      # (box's root install symlinks into /usr/local/bin, already on this
+      # shell's PATH — no login shell needed). "Host set up" is a separate
+      # claim and gets box's OWN effective-state verdict, `box doctor` —
+      # the daemon, the pool, the network stay box's domain (the same
+      # delegation law as the install itself: box owns the daemon), rig
+      # just refuses to claim what that verdict does not answer. Both
+      # failures WARN, never die: box is the host EXTRA, and the OS+tailnet
+      # core above is already done and asserted.
+      if command -v box >/dev/null 2>&1; then
+        if box doctor >/dev/null 2>&1; then
+          log "box installed and host set up — 'box doctor' passed; mint guest boxes with 'box new'"
+        else
+          warn "box is on PATH but 'box doctor' does not pass — the CLI landed, the host stack is unproven. Run 'box doctor' for the verdict, then 'box setup-host' (or finish by hand: ${BOX_MANUAL})"
+        fi
+      else
+        warn "box's installer reported success but no 'box' is on PATH — the install did not take effect. Finish the host by hand: ${BOX_MANUAL}"
+      fi
     else
       warn "box install did not complete (no network, or box's installer failed); bootstrap's core work is done. Finish the host by hand: ${BOX_MANUAL}"
     fi

@@ -136,6 +136,45 @@ check "bootstrap: box install runs after the role marker write" \
 # host whose box did not install is never left without the next move.
 check "bootstrap: box skip/failure keeps a pointer to the manual install" 0 "" \
   grep -q "prepare Incus" "$ROOT/commands/bootstrap.sh"
+# "Don't trust exit codes" (#12): box's installer can exit 0 having done less
+# than it claims (its setup-host has a path that exits 0 after only adding a
+# group, asking for a re-login). After a claimed success bootstrap must prove
+# the one artifact it asked for — box on PATH — and a hollow success WARNS,
+# never dies: box is the host extra. Exercising it needs root + the network,
+# so grep the shipped script (repo precedent: the tag-refusal greps). Match
+# the CALL, not the word — the rationale comment says `command -v box` too.
+check "bootstrap: a box-install success is verified, not trusted" 0 "" \
+  grep -qE '^[[:space:]]*if command -v box' "$ROOT/commands/bootstrap.sh"
+check "bootstrap: a hollow box-install success warns, never dies" 0 "" \
+  grep -q "reported success but no 'box' is on PATH" "$ROOT/commands/bootstrap.sh"
+# Ordering: the effective check must sit AFTER the installer run it verifies.
+# Line-number compare, defaults fail closed (same idiom as the marker/install
+# ordering assert above; box_install_at is computed there).
+box_check_at="$(grep -nE '^[[:space:]]*if command -v box' "$ROOT/commands/bootstrap.sh" | head -n1 | cut -d: -f1)"
+check "bootstrap: the effective check follows the installer run" \
+  0 "" test "${box_install_at:-999999}" -lt "${box_check_at:-0}"
+# rig's delegation law caps the check's depth: rig never interrogates Incus —
+# the host verdict is box's own verb, and the "host set up" CLAIM is gated on
+# it. Two asserts: the gate exists as a call (not just prose naming the verb),
+# and the claim line sits inside/after it (line order, fail-closed defaults —
+# a claim that outruns its proof is exactly the overclaim this closes).
+check "bootstrap: the host-set-up claim is gated on box doctor" 0 "" \
+  grep -qE '^[[:space:]]*if box doctor' "$ROOT/commands/bootstrap.sh"
+doctor_at="$(grep -nE '^[[:space:]]*if box doctor' "$ROOT/commands/bootstrap.sh" | head -n1 | cut -d: -f1)"
+claim_at="$(grep -n 'box installed and host set up' "$ROOT/commands/bootstrap.sh" | head -n1 | cut -d: -f1)"
+check "bootstrap: the claim follows the doctor gate" \
+  0 "" test "${doctor_at:-999999}" -lt "${claim_at:-0}"
+check "bootstrap: a failed doctor warns without claiming the host" 0 "" \
+  grep -q "the CLI landed, the host stack is unproven" "$ROOT/commands/bootstrap.sh"
+# --- README: the box rename (#12) --------------------------------------------
+# The philosophy line must point at heavy-duty/box — the old claudebox slug
+# only works through a GitHub redirect that one squatted rename away from
+# breaking (box's own installer was already bitten by the rename once). A
+# negative grep (exit 1 = pass) keeps the stale slug from creeping back.
+check "README: no stale heavy-duty/claudebox links" 1 "" \
+  grep -n "heavy-duty/claudebox" "$ROOT/README.md"
+check "README: points at heavy-duty/box" 0 "" \
+  grep -q "github.com/heavy-duty/box" "$ROOT/README.md"
 if [ "$(id -u)" -ne 0 ]; then
   check "bootstrap: refuses non-root"      1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload
   check "bootstrap: runner role parses, refuses non-root" 1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" runner
@@ -169,6 +208,57 @@ if [ "$(id -u)" -ne 0 ]; then
 else
   echo "skip: coolify backup non-root refusal (running as root)"
 fi
+
+# --- role-marker sanity: coolify verbs off the control plane (#25) -----------
+# Both coolify commands read /etc/rig/role and WARN — never die — when the
+# marker names a non-control-plane role: the likeliest story is the wrong SSH
+# session, but the marker is advisory and must not outrank the operator. The
+# warning fires BEFORE the root check (same testability rule as arg errors),
+# so a non-root run prints it and then hits the root refusal — provable here
+# with RIG_ROLE_MARKER pointed at fixtures (repo precedent: the close-root
+# marker gate). Counting fires proves silence too: a control-plane marker, an
+# absent marker, and a marker-less box must all stay quiet, because warning on
+# absence would nag every pre-marker box on every legitimate run.
+marker_warns() { # marker_warns <marker_path> <cmd...> — how many warnings fired
+  local marker="$1"; shift
+  env RIG_ROLE_MARKER="$marker" "$@" 2>&1 | grep -c "not a control-plane box" || true
+}
+MARKER_FIX="$(mktemp -d)"
+printf 'role=workload class=server host=no join=authkey\n'      > "$MARKER_FIX/workload"
+printf 'role=control-plane class=server host=no join=authkey\n' > "$MARKER_FIX/control-plane"
+printf 'role=control-plane\n'                                   > "$MARKER_FIX/bare-control-plane"
+if [ "$(id -u)" -ne 0 ]; then
+  check "coolify: warns on a non-control-plane marker" 0 "1" \
+    marker_warns "$MARKER_FIX/workload" "$ROOT/commands/coolify-install.sh" --version 4.1.2
+  check "coolify: control-plane marker stays silent" 0 "0" \
+    marker_warns "$MARKER_FIX/control-plane" "$ROOT/commands/coolify-install.sh" --version 4.1.2
+  # A bare marker line with no trailing traits must read the same as the full
+  # one — the guard must not couple to the marker's field formatting.
+  check "coolify: a bare 'role=control-plane' line (no traits) stays silent" 0 "0" \
+    marker_warns "$MARKER_FIX/bare-control-plane" "$ROOT/commands/coolify-install.sh" --version 4.1.2
+  check "coolify: absent marker stays silent (advisory, not a gate)" 0 "0" \
+    marker_warns "$MARKER_FIX/absent" "$ROOT/commands/coolify-install.sh" --version 4.1.2
+  # The warning must stay a warning: the run proceeds past it and stops at the
+  # root check (exit 1), never turned into a marker refusal.
+  check "coolify: the marker warns but never refuses" 1 "must run as root" \
+    env RIG_ROLE_MARKER="$MARKER_FIX/workload" "$ROOT/commands/coolify-install.sh" --version 4.1.2
+  check "coolify backup: warns on a non-control-plane marker" 0 "1" \
+    marker_warns "$MARKER_FIX/workload" "$ROOT/commands/coolify-backup-install.sh"
+  check "coolify backup: control-plane marker stays silent" 0 "0" \
+    marker_warns "$MARKER_FIX/control-plane" "$ROOT/commands/coolify-backup-install.sh"
+  check "coolify backup: the marker warns but never refuses" 1 "must run as root" \
+    env RIG_ROLE_MARKER="$MARKER_FIX/workload" "$ROOT/commands/coolify-backup-install.sh"
+else
+  echo "skip: coolify role-marker warning checks (running as root)"
+fi
+rm -rf "$MARKER_FIX"
+# Root runs skip the live checks above, so also pin the warning's presence in
+# both shipped scripts — a deleted advisory cannot ship green (repo precedent:
+# the staging/runner tag greps).
+check "coolify: marker warning present in the shipped script" 0 "" \
+  grep -q "not a control-plane box" "$ROOT/commands/coolify-install.sh"
+check "coolify backup: marker warning present in the shipped script" 0 "" \
+  grep -q "not a control-plane box" "$ROOT/commands/coolify-backup-install.sh"
 
 # --- rig db (ad-hoc dump/restore) -------------------------------------------
 check "bare db shows usage, exit 2"       2 "usage:" "$ROOT/bin/rig" db
