@@ -136,6 +136,36 @@ check "bootstrap: box install runs after the role marker write" \
 # host whose box did not install is never left without the next move.
 check "bootstrap: box skip/failure keeps a pointer to the manual install" 0 "" \
   grep -q "prepare Incus" "$ROOT/commands/bootstrap.sh"
+# "Don't trust exit codes" (#12): box's installer can exit 0 having done less
+# than it claims (its setup-host has a path that exits 0 after only adding a
+# group, asking for a re-login). After a claimed success bootstrap must prove
+# the one artifact it asked for — box on PATH — and a hollow success WARNS,
+# never dies: box is the host extra. Exercising it needs root + the network,
+# so grep the shipped script (repo precedent: the tag-refusal greps). Match
+# the CALL, not the word — the rationale comment says `command -v box` too.
+check "bootstrap: a box-install success is verified, not trusted" 0 "" \
+  grep -qE '^[[:space:]]*if command -v box' "$ROOT/commands/bootstrap.sh"
+check "bootstrap: a hollow box-install success warns, never dies" 0 "" \
+  grep -q "reported success but no 'box' is on PATH" "$ROOT/commands/bootstrap.sh"
+# Ordering: the effective check must sit AFTER the installer run it verifies.
+# Line-number compare, defaults fail closed (same idiom as the marker/install
+# ordering assert above; box_install_at is computed there).
+box_check_at="$(grep -nE '^[[:space:]]*if command -v box' "$ROOT/commands/bootstrap.sh" | head -n1 | cut -d: -f1)"
+check "bootstrap: the effective check follows the installer run" \
+  0 "" test "${box_install_at:-999999}" -lt "${box_check_at:-0}"
+# rig's delegation law caps the check's depth: rig never interrogates Incus, so
+# the deeper verdict is handed to box's own verb rather than reimplemented.
+check "bootstrap: the deeper host verification is delegated to box doctor" 0 "" \
+  grep -q "box doctor" "$ROOT/commands/bootstrap.sh"
+# --- README: the box rename (#12) --------------------------------------------
+# The philosophy line must point at heavy-duty/box — the old claudebox slug
+# only works through a GitHub redirect that one squatted rename away from
+# breaking (box's own installer was already bitten by the rename once). A
+# negative grep (exit 1 = pass) keeps the stale slug from creeping back.
+check "README: no stale heavy-duty/claudebox links" 1 "" \
+  grep -n "heavy-duty/claudebox" "$ROOT/README.md"
+check "README: points at heavy-duty/box" 0 "" \
+  grep -q "github.com/heavy-duty/box" "$ROOT/README.md"
 if [ "$(id -u)" -ne 0 ]; then
   check "bootstrap: refuses non-root"      1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload
   check "bootstrap: runner role parses, refuses non-root" 1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" runner

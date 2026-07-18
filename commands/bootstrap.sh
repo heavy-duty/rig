@@ -531,7 +531,25 @@ if [ "$HOST" = "yes" ]; then
     # else — a warning, never an abort: box is the host extra, the OS+tailnet core
     # is already done.
     if curl -fsSL "$BOX_INSTALL_URL" | BOX_YES=1 bash; then
-      log "box installed and host set up — mint guest boxes with 'box new'"
+      # Don't trust the exit code — prove the effective state (issue #12). An
+      # installer can exit 0 having done less than it claims: box's setup-host
+      # is written for a sudo-capable user, and one of its paths exits 0 after
+      # only adding a group, asking for a re-login. That is the sshd first-wins
+      # bug's exact shape — asserting what was REQUESTED (here: the installer's
+      # claimed success) instead of what actually TOOK. The check stays
+      # deliberately LIGHT: box on PATH is the one artifact rig asked the
+      # installer for. Anything deeper — the incus daemon, the pool, the
+      # network — is box's domain, and rig never interrogates Incus (the same
+      # delegation law as the install itself: box owns the daemon); box ships
+      # its own effective-state verdict as `box doctor`, so the success line
+      # hands the operator that verb instead of half-reimplementing it here.
+      # And a failed check WARNS, never dies: box is the host EXTRA, and the
+      # OS+tailnet core above is already done and asserted.
+      if command -v box >/dev/null 2>&1; then
+        log "box installed and host set up — mint guest boxes with 'box new'; 'box doctor' verifies the host end to end"
+      else
+        warn "box's installer reported success but no 'box' is on PATH — the install did not take effect. Finish the host by hand: ${BOX_MANUAL}"
+      fi
     else
       warn "box install did not complete (no network, or box's installer failed); bootstrap's core work is done. Finish the host by hand: ${BOX_MANUAL}"
     fi
