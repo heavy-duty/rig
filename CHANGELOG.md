@@ -4,7 +4,7 @@ History before 0.1.0 lives in git — rig grew its version surface (`VERSION`,
 `rig --version`, the side-by-side `versions/<v>` install layout; #35/#36)
 on the way to cutting its first release, and this file starts there.
 
-## Unreleased
+## 0.1.0 — 2026-07-19
 
 ### Fixed
 
