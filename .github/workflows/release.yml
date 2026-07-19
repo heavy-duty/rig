@@ -18,19 +18,20 @@ name: release
 # pure-bash tree, GitHub's source tarball for the tag IS the package
 # (install.sh downloads archive/refs/tags/<tag>).
 on:
+  # ONE push key, both filters — YAML maps are last-key-wins, so a second
+  # sibling `push:` would silently REPLACE the first and kill a door
+  # (grok's round-2 catch: the tag fallback had stopped triggering).
   push:
     # Every tag, not a shape filter: a tag that mismatches VERSION must fail
     # LOUDLY below, not be silently skipped by a pattern that didn't match.
     tags: ['**']
-  push:
     # The merge-is-the-release path (#47) rides pushes to MAIN, not
-    # pull_request events, for one load-bearing reason the first review
-    # round caught: a workflow run triggered by a pull_request from a
-    # public FORK gets a READ-ONLY GITHUB_TOKEN — `permissions:` cannot
-    # raise that ceiling — and every ceremony PR this org has ever merged
-    # is cross-repo from the bot fork. The asserts would pass and the tag
-    # create would 403, red on main, every release. A push to main is an
-    # in-repo event with the full write token, whoever authored the PR.
+    # pull_request events: a pull_request run from a public FORK gets a
+    # READ-ONLY GITHUB_TOKEN — `permissions:` cannot raise that ceiling —
+    # and every ceremony PR this org merges is cross-repo from the bot
+    # fork; the tag create would 403 after green asserts. A push to main
+    # is an in-repo event with the full write token, whoever authored the
+    # PR. The jobs split on the pushed ref.
     branches: [main]
 
 permissions:
