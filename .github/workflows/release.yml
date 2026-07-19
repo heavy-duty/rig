@@ -97,7 +97,9 @@ jobs:
       # time the flow itself is improved. Everything in between is a
       # half-ceremony and dies loudly:
       #   -dev, unchanged   → work under the label: NOTICE + green no-op
-      #   -dev, changed     → a bump that forgot to leave -dev: refuse
+      #   -dev, changed     → still a dev tree, so still work — the
+      #                       post-release bump PR above all (bare -> -dev
+      #                       after every release): green NOTICE no-op
       #   bare, unchanged,
       #     already released → work merged in the post-release window
       #                       (ceremony landed, the -dev bump has not):
@@ -121,8 +123,9 @@ jobs:
                 echo "ceremony=no" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
-              echo "VERSION changed ('$base_ver' -> '$ver') but is still -dev — half a ceremony; a release PR ships a bare X.Y.Z. Refusing." >&2
-              exit 1 ;;
+              echo "NOTICE: VERSION changed ('$base_ver' -> '$ver') and still ends -dev — a dev tree is by definition not a release. This is work (the post-release bump, a renumber); nothing to publish."
+              echo "ceremony=no" >> "$GITHUB_OUTPUT"
+              exit 0 ;;
           esac
           if [ "$base_ver" = "$ver" ]; then
             if gh release view "$ver" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
