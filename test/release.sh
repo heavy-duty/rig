@@ -135,12 +135,20 @@ check "release.yml: the assert precedes the create" \
 # treatment for the merge path's load-bearing pieces: the gate, the four
 # fail-loud asserts, the same-job tag+publish, and the surviving tag-push
 # fallback.
-check "release.yml: fires when a PR into main closes (merge = ship)" 0 "" \
-  grep -qF "pull_request:" "$RY"
-check "release.yml: only a MERGED PR releases (closed-unmerged never fires)" 0 "" \
-  grep -qF "github.event.pull_request.merged == true" "$RY"
-check "release.yml: only the 'release' label carries the intent" 0 "" \
-  grep -qF "contains(github.event.pull_request.labels.*.name, 'release')" "$RY"
+# The merge door rides pushes to MAIN, not pull_request events: a fork PR's
+# pull_request run gets a read-only GITHUB_TOKEN (permissions: cannot raise
+# it), and every ceremony PR this org merges is cross-repo from the bot
+# fork — the tag create would 403 after green asserts (#48 round 1). The
+# label — the operator's intent — is read via the API off the merge commit.
+check "release.yml: the merge door rides pushes to main (fork-token-proof)" 0 "" \
+  grep -qF "branches: [main]" "$RY"
+check "release.yml: ...and the doors split on the ref (tag door takes tags)" 0 "" \
+  grep -qF "startsWith(github.ref, 'refs/tags/')" "$RY"
+# shellcheck disable=SC2016  # the $-string is a literal in the target file
+check "release.yml: the release label is read via the API off the merge commit" 0 "" \
+  grep -qF 'commits/$MERGE_SHA/pulls' "$RY"
+check "release.yml: a transition without a labeled PR refuses" 0 "" \
+  grep -qF "no merged, release-labeled PR is behind this commit" "$RY"
 # The decide step tells the label's two meanings apart (LABELS.md gives
 # `release` to release-flow WORK as well as to the ceremony PR): work under
 # the label is a green NOTICE no-op — in the -dev steady state and in the
@@ -169,7 +177,8 @@ MJOB="$(awk '/^  release-on-merge:/,0' "$RY")"
 mjob_has() { printf '%s' "$MJOB" | grep -qF -e "$1"; }
 check "release.yml: the merge job API-creates the tag itself" 0 "" \
   mjob_has "git/refs"
-check "release.yml: ...at the MERGE commit" 0 "" mjob_has "merge_commit_sha"
+# shellcheck disable=SC2016  # the $-string is a literal in the target file
+check "release.yml: ...at the pushed main head (github.sha = the merge commit)" 0 "" mjob_has 'sha="$MERGE_SHA"' 
 check "release.yml: ...and publishes in the SAME job" 0 "" \
   mjob_has "gh release create"
 # Ordering, the marker-then-box idiom again: the last assert's refusal must
