@@ -199,6 +199,21 @@ on the way to cutting its first release, and this file starts there.
   cannot reopen quietly — including via a symlinked directory, which
   `globstar` declines to traverse.
 
+- **Ctrl-D at the `rig uninstall` confirm no longer aborts in silence**
+  (#68) — `uninstall_confirm`'s `read -r reply` was unguarded. Under
+  `set -euo pipefail`, and called as a plain statement, EOF made `read`
+  return non-zero and killed the shell *at the read* — the `case` on the
+  next line never ran, so `die "aborted."` never fired. The operator saw
+  the question, pressed Ctrl-D, and got nothing back: no message, just
+  exit 1, at the exact moment the tool had asked whether to delete their
+  install. It failed closed (nothing was ever removed), but nothing said
+  so. Now `read -r reply || reply=""`, so EOF falls through to the `*)`
+  arm and aborts out loud — the spelling `commands/db.sh` already used for
+  the same `[y/N]` shape, one file away. `test/cli.sh` gains the first
+  drills of the interactive path, driving `y` and Ctrl-D through a real
+  pty (util-linux `script`, skipped where it is absent) and asserting the
+  MESSAGE rather than the exit code, which the bug also produced.
+
 ## 0.2.0 — 2026-07-19
 
 ### Added
