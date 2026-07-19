@@ -130,6 +130,49 @@ create_at="$(grep -n "gh release create" "$RY" | head -n1 | cut -d: -f1)"
 check "release.yml: the assert precedes the create" \
   0 "" test "${assert_at:-999999}" -lt "${create_at:-0}"
 
+# --- release.yml, the merge path: the pins (#47; box#96's design) ------------
+# Merging the release-labeled ceremony PR IS the release. Same grep-pin
+# treatment for the merge path's load-bearing pieces: the gate, the four
+# fail-loud asserts, the same-job tag+publish, and the surviving tag-push
+# fallback.
+check "release.yml: fires when a PR into main closes (merge = ship)" 0 "" \
+  grep -qF "pull_request:" "$RY"
+check "release.yml: only a MERGED PR releases (closed-unmerged never fires)" 0 "" \
+  grep -qF "github.event.pull_request.merged == true" "$RY"
+check "release.yml: only the 'release' label carries the intent" 0 "" \
+  grep -qF "contains(github.event.pull_request.labels.*.name, 'release')" "$RY"
+check "release.yml: assert 1 — a still-dev VERSION refuses" 0 "" \
+  grep -qF "refusing to release a dev tree" "$RY"
+check "release.yml: assert 2 — an unchanged VERSION refuses (the mislabel interlock)" 0 "" \
+  grep -qF "VERSION did not change in this PR" "$RY"
+check "release.yml: assert 3 — an empty section refuses to publish" 0 "" \
+  grep -qF "refusing to publish an empty release" "$RY"
+check "release.yml: assert 4 — an existing tag or release refuses (idempotent)" 0 "" \
+  grep -qF "refusing to re-release" "$RY"
+# Same-job matters: a GITHUB_TOKEN-created tag fires no tag-push workflow,
+# so the publish must live NEXT TO the tag creation. The workflow keeps
+# release-on-merge as its last job (pinned by comment there) so the awk
+# range runs to EOF; both acts must land inside it.
+MJOB="$(awk '/^  release-on-merge:/,0' "$RY")"
+mjob_has() { printf '%s' "$MJOB" | grep -qF -e "$1"; }
+check "release.yml: the merge job API-creates the tag itself" 0 "" \
+  mjob_has "git/refs"
+check "release.yml: ...at the MERGE commit" 0 "" mjob_has "merge_commit_sha"
+check "release.yml: ...and publishes in the SAME job" 0 "" \
+  mjob_has "gh release create"
+# Ordering, the marker-then-box idiom again: the last assert's refusal must
+# precede the tag creation (asserts first, acts last; defaults fail closed).
+massert_at="$(grep -n "refusing to re-release" "$RY" | head -n1 | cut -d: -f1)"
+mtag_at="$(grep -n "git/refs" "$RY" | head -n1 | cut -d: -f1)"
+check "release.yml: the merge-path asserts precede the tag" \
+  0 "" test "${massert_at:-999999}" -lt "${mtag_at:-0}"
+# ...and the manual path SURVIVES: tag-push trigger plus a push-gated job,
+# the documented fallback and backfill.
+check "release.yml: the tag-push trigger survives (manual fallback intact)" 0 "" \
+  grep -qF "tags: ['**']" "$RY"
+check "release.yml: the fallback job is gated to push events" 0 "" \
+  grep -qF "github.event_name == 'push'" "$RY"
+
 # --- the installer's ref logic, extracted ------------------------------------
 # install.sh must stay a single curl|bash file, so its channel functions live
 # inline; extract them here and drive them for real (the valid_version awk

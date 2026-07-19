@@ -36,6 +36,20 @@ on the way to cutting its first release, and this file starts there.
 
 ### Added
 
+- **Merging a release-labeled PR IS the release** (#47) — the rig twin of
+  heavy-duty/box#96, born of the ceremony retro: the tag was a separate,
+  manual, silent-when-forgotten step, and a forgotten tag produces no red
+  X. `release.yml` now also fires when a PR into main closes, gated on
+  merged AND the `release` label, and asserts in order — fail-loud,
+  creating nothing: `VERSION` at the merge commit is non-`-dev`; `VERSION`
+  *changed in this PR* (the interlock that fails a mislabeled ordinary PR);
+  the changelog section for that version extracts non-empty via the same
+  `changelog_section`; no tag or release exists yet. Then, in the same job,
+  it API-creates the tag at the merge commit and publishes the release with
+  the extracted notes. A `GITHUB_TOKEN`-created tag never fires the
+  tag-push trigger, so the paths cannot double-publish — and that tag-push
+  path survives intact as the documented manual fallback and backfill.
+
 - **Tagged releases, and an installer that installs them** (#32) — the rig
   half of the flow designed in heavy-duty/box#83, near-verbatim. A release
   is a PR, then a tag: the `release: X.Y.Z` PR bumps `VERSION` and stamps
