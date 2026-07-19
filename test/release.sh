@@ -142,6 +142,11 @@ check "release.yml: the assert precedes the create" \
 # label — the operator's intent — is read via the API off the merge commit.
 check "release.yml: the merge door rides pushes to main (fork-token-proof)" 0 "" \
   grep -qF "branches: [main]" "$RY"
+# YAML maps are last-key-wins: a second sibling push: key silently replaces
+# the first and kills a door (grok's round-2 catch — the tag fallback had
+# stopped triggering). Exactly ONE push key may exist.
+check "release.yml: exactly one on.push key (duplicate keys drop a door)" 0 "1" \
+  grep -cE '^  push:' "$RY"
 check "release.yml: ...and the doors split on the ref (tag door takes tags)" 0 "" \
   grep -qF "startsWith(github.ref, 'refs/tags/')" "$RY"
 # shellcheck disable=SC2016  # the $-string is a literal in the target file
