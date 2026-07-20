@@ -1023,12 +1023,20 @@ check "platform: reads #61's converged_by/at" 0 "CONVERGED  0.6.0, 2026-08-02T09
   env RIG_MANIFEST="$PLATWORK/manifest" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
 check "platform: reads #61's bootstrapped_by/at" 0 "BOOTSTRAP  0.4.0, 2026-07-19T14:24:51Z" \
   env RIG_MANIFEST="$PLATWORK/manifest" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
-# Birth and latest stay SEPARATE: #61 rule 2 writes converged_* only when the
-# version actually differs, so its absence on a freshly bootstrapped box is a
-# legitimate state — it must not be silently backfilled from bootstrapped_*.
-printf 'schema=1\nbootstrapped_by=0.4.0\nbootstrapped_at=2026-07-19T14:24:51Z\n' > "$PLATWORK/manifest-birth"
-check "platform: unconverged box says so, never infers from birth" 0 "CONVERGED  not recorded" \
-  env RIG_MANIFEST="$PLATWORK/manifest-birth" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
+# A FRESH bootstrap carries both pairs with EQUAL values — #61 is explicit
+# ("On a fresh machine both pairs are written with equal values"); rule 2 only
+# suppresses converged_* churn on a later same-version re-run. So equal dates
+# are the never-re-converged case and must render as themselves, not be
+# special-cased into looking unset.
+printf 'schema=1\nbootstrapped_by=0.4.0\nbootstrapped_at=2026-07-19T14:24:51Z\nconverged_by=0.4.0\nconverged_at=2026-07-19T14:24:51Z\n' > "$PLATWORK/manifest-fresh"
+check "platform: a fresh bootstrap shows both pairs equal (#61)" 0 "CONVERGED  0.4.0, 2026-07-19T14:24:51Z" \
+  env RIG_MANIFEST="$PLATWORK/manifest-fresh" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
+# A manifest missing converged_* is therefore NOT a fresh box — no writer
+# produces that — so it is partial or hand-edited. Degrade loudly rather than
+# backfilling from birth, which would invent a convergence that never happened.
+printf 'schema=1\nbootstrapped_by=0.4.0\nbootstrapped_at=2026-07-19T14:24:51Z\n' > "$PLATWORK/manifest-partial"
+check "platform: a partial manifest says so, never infers from birth" 0 "CONVERGED  not recorded" \
+  env RIG_MANIFEST="$PLATWORK/manifest-partial" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
 # A newer schema renders what it recognises and says the rest is unreadable,
 # rather than pretending a partial read is the whole truth.
 printf 'schema=2\nbootstrapped_by=9.9.9\nbootstrapped_at=2027-01-01T00:00:00Z\n' > "$PLATWORK/manifest-v2"

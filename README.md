@@ -774,10 +774,19 @@ bootstrapped` on every machine; nothing else in the command depends on it.
 is birth (`bootstrapped_by`/`bootstrapped_at`, first-write-wins, pinned
 forever) and `CONVERGED` is latest (`converged_by`/`converged_at`, updated only
 when the converging version actually differs). That distinction is what answers
-"is this machine still converged by a rig that predates the fix?" — so
-`CONVERGED` reads `not recorded` rather than being backfilled from birth on a
-box that has only ever been bootstrapped once. A manifest whose `schema=` this
-rig does not know is named as such instead of being half-read in silence.
+"is this machine still converged by a rig that predates the fix?".
+
+A **fresh machine writes both pairs with equal values**, so two identical lines
+mean "bootstrapped and never re-converged since" — not a missing record. A
+later re-converge by a different rig moves `CONVERGED` and leaves `BOOTSTRAP`
+untouched, which is the whole point of keeping them apart.
+
+`CONVERGED  not recorded` therefore does **not** describe a freshly
+bootstrapped box; no writer produces a manifest without the pair. It means the
+file is partial or hand-edited, and the value is deliberately not backfilled
+from `BOOTSTRAP` — inferring a convergence that never happened would be worse
+than saying so. Likewise a manifest whose `schema=` this rig does not know is
+named as such instead of being half-read in silence.
 
 **Known limitation — `CPU` and `MEMORY` inside a container-style guest are
 unverified.** `CPU` and `MEMORY` are read straight from `/proc/cpuinfo` and

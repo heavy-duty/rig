@@ -33,7 +33,10 @@ on the way to cutting its first release, and this file starts there.
   nothing else depends on it. The reader is keyed to #61's documented schema
   (`schema`, `bootstrapped_by`/`_at`, `converged_by`/`_at`) and fixtures pin
   that exact spelling, so the integration cannot land silently broken; birth
-  and latest stay separate rather than one being inferred from the other. Named `platform` and not `status` on purpose:
+  and latest stay separate rather than one being inferred from the other. A
+  fresh machine writes both pairs equal, so two identical lines read as
+  "never re-converged"; a manifest missing the pair is partial rather than
+  fresh, and says so instead of backfilling from birth. Named `platform` and not `status` on purpose:
   `users status` and `runner status` cross-check recorded against live state
   and print `DRIFT`, and a command that records nothing cannot drift — which
   also leaves `rig status` free for the machine-wide roll-up. Known
