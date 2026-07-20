@@ -458,9 +458,9 @@ command is exactly who that refusal catches (it names the new spelling).
 > above.** The seed preinstalls rig via its curl installer, which resolves
 > `RIG_REPO`/`RIG_REF` — and since rig#32 the installer defaults to the
 > **latest release**, with `RIG_REF=<tag>` the pin and `RIG_REF=main` the
-> dev channel. Until rig cuts 0.1.0 there is no release to resolve, so the
-> seed must set `RIG_REF=main` explicitly (the default channel fails loudly
-> rather than falling back). That inverts the install edge on this page:
+> dev channel. A seed that needs main must set `RIG_REF=main` explicitly;
+> the default channel never silently falls back to a development branch.
+> That inverts the install edge on this page:
 > rig installs box on VM-hosting machines, and box guests now install rig.
 > `RIG_REPO`/`RIG_REF` are the pin points, or point them at a frozen branch
 > of your own fork. The seed side of this edge is box#81's to document.
