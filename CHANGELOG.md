@@ -235,7 +235,7 @@ on the way to cutting its first release, and this file starts there.
   the new `blocker:*` labels a single missing one would have taken the state
   convergence down with it — on exactly the PRs this change exists to heal.
   Now the state still converges and the missing labels are named in the log.
-  Fixtures 51 → 68.
+  Fixtures 51 → 72.
 
 - **BREAKING: `--class human|server` is now `--root-door closed|open`** (#77) —
   the trait was named for who *lives on* a box; what it decides is one thing,
