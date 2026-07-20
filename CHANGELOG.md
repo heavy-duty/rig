@@ -6,6 +6,91 @@ on the way to cutting its first release, and this file starts there.
 
 ## Unreleased
 
+### Fixed
+
+- **`state:needs-human` no longer appears on PRs a human cannot merge**
+  (#87, heavy-duty/box#136) — `decide_state()` derived state from three inputs
+  (draft flag, requested reviewers, submitted reviews) and read *nothing* about
+  mergeability or checks. Combined with the `if requested "$HUMAN"`
+  short-circuit at the top of its precedence, the label was **sticky**: once
+  the maintainer was requested, the PR read `state:needs-human` through
+  conflicts, through red CI, through a force-push that staled every approval.
+  Nothing demoted it.
+
+  This repo paid for it directly. During the ten-PR batch merged on 2026-07-20,
+  every merge re-conflicted the PRs below it through `CHANGELOG.md` — and each
+  one kept its `state:needs-human` label the whole time, inviting a merge that
+  could not happen. It was noticed only by opening them one at a time, which is
+  the exact work the label exists to save.
+
+  The rule the label now keeps is that **`state:needs-human` means a human
+  could merge this right now**, so anything making that false outranks the
+  request that put it there. A `CONFLICTING` branch or a failing check is the
+  agent's to fix: new `state:needs-rebase`. Approvals staled by a push mean
+  nobody reviewed this tree: `state:addressing`, because the agent owes a
+  re-request. An *unfinished* round still yields to an explicit human request —
+  a maintainer pulling a PR to themselves early is deliberate, and `MISSING`
+  (nobody has reviewed yet) is a different fact from `STALE` (everyone reviewed
+  something else). Precedence is applied to the round as a whole, after every
+  verdict is collected: deciding inside the loop let the order of `BOTS` pick
+  the answer, so a round that was *both* unfinished and staled returned on the
+  `MISSING` before any later bot's `STALE` was read — and came out
+  `needs-human` over a head nobody had reviewed, the original bug wearing a
+  different hat.
+
+  Whether a check blocks is judged by listing the outcomes that *don't* —
+  `SUCCESS`, `NEUTRAL`, `SKIPPED`, and the pending set — rather than the
+  outcomes that do. The rollup mixes two closed enums (`CheckRun.conclusion`
+  and `StatusContext.state`), and an outcome the list forgets is one the label
+  cannot certify as mergeable: `ERROR`, `CANCELLED` and `STALE` all read as
+  green under an allow-list of failures. The costs are not symmetric — a false
+  failure parks the PR on the agent, who looks; a false success invites a human
+  to merge a tree that will not merge. Superseded runs are dropped first, each
+  context collapsing to its newest entry: a re-run does not evict the run it
+  replaced, so box#137's own tip carried a `CANCELLED` `scope` beside the
+  `SUCCESS` `scope` that superseded it, and judging every entry would have
+  stranded every re-run PR in `needs-rebase`.
+
+  Which entry is newest is dated by **when the run began** — `startedAt`,
+  falling back only if it never recorded one — discarding *both* spellings of
+  absent. A run still in flight has no completion, but `gh` does not omit the
+  field: its Go struct marshals the zero time as the string
+  `0001-01-01T00:00:00Z`, and `//` falls through `null` and `false` only.
+  Dating by completion therefore sorted the *live* re-run to the bottom and
+  let `last` pick the very run it superseded — a green context with a
+  replacement mid-flight read `SUCCESS`, inviting a merge the button had
+  already disabled, which is #136 restored by the fix for it.
+
+  Taking the *newest* stamp each run carries is not a fix either, and this is
+  the subtle part: it compares a finished predecessor by when it **ended**
+  against a live successor by when it **began**, which is not an ordering on
+  runs at all. A run cancelled by the concurrency group does not stop the
+  instant its replacement starts — the runner has to receive the signal and
+  wind down — so the predecessor completing *after* the successor started is
+  the ordinary case, 13s wide on the box#137 tip that motivated the supersede
+  rule. For that whole drain window the dying predecessor out-dated its own
+  replacement. One consistent quantity, start time, is the only ordering that
+  holds. An entry carrying no usable timestamp at all sorts last rather than
+  first, so something that cannot be dated is never discarded in favour of a
+  stale success. Every ambiguity here resolves toward "not settled".
+
+  `UNKNOWN` mergeability is deliberately not treated as unmergeable: GitHub
+  reports it for about a minute after every merge while it recomputes, and
+  flapping every open PR through `needs-rebase` on each merge would be worse
+  than the bug. A failed read of either fact degrades to the same "do not know"
+  value, for the same reason.
+
+  Also adds `merge-next`, because a correct `needs-human` still does not say
+  *which* PR to merge first, and order matters when they conflict. Queue order
+  is intent, so the reconciler never sets it — it only **clears** it once the
+  PR stops being mergeable-by-a-human, which is precisely the staleness that
+  made `needs-human` untrustworthy. Both live shapes, the mixed round, the
+  whole check-outcome enum, and the re-run in every temporal arrangement it
+  occurs in — superseded, still in flight in both spellings of an absent
+  completion, undateable, and still draining past its replacement's start —
+  are pinned in `test/labels-reconcile.sh`. Ported from heavy-duty/box#137 so
+  the three repos' reconcilers stay byte-identical; fixtures 19 → 51.
+
 ### Added
 
 - **`rig platform` — what is this machine, calculated at run time, stored
