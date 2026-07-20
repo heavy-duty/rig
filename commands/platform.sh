@@ -97,7 +97,10 @@ if DF="$(df -PB1 / 2>/dev/null)"; then
   DISK_TOTAL="$(printf '%s\n' "$DF" | awk 'NR==2 {print $2}')"
   DISK_FREE="$(printf '%s\n' "$DF" | awk 'NR==2 {print $4}')"
 fi
-human_b() { [ -n "${1:-}" ] && numfmt --to=iec-i "$1" 2>/dev/null || printf 'unknown'; }
+human_b() {   # bytes -> IEC; falls back like human_kb rather than to 'unknown'
+  [ -n "${1:-}" ] || { printf 'unknown'; return 0; }
+  numfmt --to=iec-i "$1" 2>/dev/null || printf '%s B' "$1"
+}
 
 # --- virtualization ---------------------------------------------------------
 # THE set -e TRAP: systemd-detect-virt exits NON-ZERO on bare metal while
@@ -139,7 +142,11 @@ MARKER="${RIG_ROLE_MARKER:-/etc/rig/role}"
 manifest_field() {   # $1 = key — empty when absent, unreadable or unset
   local k v
   [ -r "$MANIFEST" ] || return 0
-  while IFS='=' read -r k v; do
+  # `|| [ -n "$k" ]` so a manifest whose last line lacks a trailing newline
+  # still yields that line: read returns 1 at EOF even having filled k/v.
+  # Same guard parse_users_file uses (lib/users-config.sh:47) — #61's writer
+  # should not have to know whether this reader tolerates a missing \n.
+  while IFS='=' read -r k v || [ -n "$k" ]; do
     [ "$k" = "$1" ] || continue
     printf '%s\n' "$v"
     return 0

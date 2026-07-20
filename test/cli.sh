@@ -1017,6 +1017,13 @@ check "platform: reads the manifest version" 0 "9.9.9" \
   env RIG_MANIFEST="$PLATWORK/manifest" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
 check "platform: reads the manifest timestamp" 0 "bootstrapped 2026-07-19T14:24:51Z" \
   env RIG_MANIFEST="$PLATWORK/manifest" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
+# ...including one whose last line has no trailing newline: `read` returns 1 at
+# EOF even having filled the variables, so an unguarded loop drops that line
+# silently — the timestamp would vanish while the version still rendered. #61's
+# writer must not have to know this reader's tolerances (found in #74 review).
+printf 'version=9.9.9\nbootstrapped=2026-07-19T14:24:51Z' > "$PLATWORK/manifest-nonl"
+check "platform: reads a manifest with no trailing newline" 0 "bootstrapped 2026-07-19T14:24:51Z" \
+  env RIG_MANIFEST="$PLATWORK/manifest-nonl" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
 printf 'role=dev class=human host=yes join=authkey\n' > "$PLATWORK/role"
 check "platform: renders the role marker's traits" 0 "dev (class=human host=yes join=authkey)" \
   env RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/role" "$ROOT/bin/rig" platform
