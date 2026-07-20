@@ -8,6 +8,22 @@ on the way to cutting its first release, and this file starts there.
 
 ### Fixed
 
+- **An unreadable check rollup no longer reads as "nothing is failing"** (#90)
+  — when `gh pr view` failed, the fallback left the `statusCheckRollup` key
+  absent entirely, and `(.statusCheckRollup // [])` collapsed that into the
+  same `NONE` as a PR that genuinely has no checks. `NONE` blocks nothing, so
+  a transient API failure presented the PR as mergeable by a human: an unknown
+  certified as green, which is the exact shape of the bug #87 was opened to
+  stop, surviving in the one place that fix never looked.
+
+  `checks_state` now separates the two — `UNREADABLE` for an absent key (a
+  read that failed), `NONE` for a present-but-empty array (a PR that really
+  has no checks) — and the sweep leaves an `UNREADABLE` PR exactly as it
+  found it rather than recomputing labels from facts it did not read.
+  Deliberately *not* a blocker: blocking would flap the whole board on one bad
+  API call, and the next tick is fifteen minutes away. Caught by the author
+  after opening the PR, not by review.
+
 - **CI runs `test/labels-reconcile.sh`, which it had never run** (#90) — the
   file arrived with #87 and `ci.yml` was not extended to call it, so the label
   state machine that gates every PR in this repo went covered only by whoever
@@ -209,7 +225,7 @@ on the way to cutting its first release, and this file starts there.
 
   The reconciler strips `state:needs-rebase` on sight via a `RETIRED` list, so
   the retirement heals the existing board instead of stranding a label that
-  nothing recomputes. Fixtures 51 → 64.
+  nothing recomputes. Fixtures 51 → 66.
 
 - **BREAKING: `--class human|server` is now `--root-door closed|open`** (#77) —
   the trait was named for who *lives on* a box; what it decides is one thing,
