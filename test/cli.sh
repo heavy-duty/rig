@@ -428,6 +428,10 @@ check "bootstrap: --users does not reach the tenant roles" 2 "unknown flag" \
 check "bootstrap: usage explains why tenants take no --users" 0 "box-minted GUEST" \
   "$ROOT/commands/bootstrap.sh" --help
 # --- README: the box rename (#12) --------------------------------------------
+# The README on main documents main's CLI, so its first full install command
+# must opt into that tree instead of silently selecting an older release.
+check "README: the main-branch quick start installs the documented tree" 0 "" \
+  grep -qF 'curl -fsSL https://raw.githubusercontent.com/heavy-duty/rig/main/install.sh | RIG_REF=main bash' "$ROOT/README.md"
 # The philosophy line must point at heavy-duty/box — the old claudebox slug
 # only works through a GitHub redirect that one squatted rename away from
 # breaking (box's own installer was already bitten by the rename once). A
