@@ -158,14 +158,27 @@ read_role_marker() {
 # unchanged from before: a marker that names no door policy cannot authorize
 # shutting a door.
 root_door_of() {
-  local marker="$1" new="" old=""
-  case "$marker" in
-    *root-door=closed*) new=closed ;;
-    *root-door=open*)   new=open ;;
+  local marker="$1" new="" old="" padded
+  # FIELD-ANCHORED, not substring. The marker is one line of space-separated
+  # `key=value` fields (bootstrap writes it with a single printf), so padding
+  # both ends and matching whole fields is exact. Unanchored patterns matched
+  # any value that EXTENDS a real one: `root-door=closedish` resolved as
+  # `closed` and passed close-root's gate — the one arm that authorizes an
+  # irreversible act — and `class=humanoid` did the same through the compat
+  # arm. That contradicted this function's own promise above, that a value
+  # outside the set resolves empty and fails closed. Only reachable by hand
+  # editing, but this is the function every consumer trusts, so it owes them
+  # exactness rather than "close enough" (found in review on #77).
+  # Whitespace is normalised first so a hand-edit using tabs or double spaces
+  # is read the same way rather than silently failing to match.
+  padded=" ${marker//[[:space:]]/ } "
+  case "$padded" in
+    *" root-door=closed "*) new=closed ;;
+    *" root-door=open "*)   new=open ;;
   esac
-  case "$marker" in
-    *class=human*)  old=closed ;;
-    *class=server*) old=open ;;
+  case "$padded" in
+    *" class=human "*)  old=closed ;;
+    *" class=server "*) old=open ;;
   esac
   if [ -n "$new" ] && [ -n "$old" ] && [ "$new" != "$old" ]; then
     printf 'conflict'; return 0

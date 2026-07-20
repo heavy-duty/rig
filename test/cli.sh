@@ -1604,6 +1604,31 @@ check "root_door_of: a tenant marker names no door at all" 0 "[]" \
   door_of 'role=claude-box tenant=yes host=no'
 check "root_door_of: disagreement is a conflict, not a coin flip" 0 "[conflict]" \
   door_of 'role=custom root-door=open class=human host=no join=login'
+# FIELD-ANCHORED, not substring (found in review on #77). A value that EXTENDS
+# a real one must resolve EMPTY and fail closed, exactly as the function's
+# header promises — before anchoring, `closedish` read as `closed` and PERMITTED
+# close-root, the one arm that authorizes an irreversible act. Both vocabularies
+# are checked: the compat arm had the identical hole, and a fix that anchored
+# only the current spelling would leave every pre-#77 box exposed to it.
+check "root_door_of: a value EXTENDING the current spelling resolves empty" 0 "[]" \
+  door_of 'role=x root-door=closedish host=no'
+check "root_door_of: a value extending the pre-#77 spelling resolves empty too" 0 "[]" \
+  door_of 'role=x class=humanoid host=no'
+check "root_door_of: a value PREFIXED by junk does not match either" 0 "[]" \
+  door_of 'role=x notroot-door=closed host=no'
+# ...and the gate itself must refuse on those, not merely resolve empty: the
+# resolver returning "" is only safe because every consumer treats it as a
+# refusal, so the end-to-end behaviour is what gets pinned.
+DOOR_FIX="$(mktemp -d)"
+printf 'role=x root-door=closedish host=no\n' > "$DOOR_FIX/bogus"
+# shellcheck disable=SC2016  # $1/$2 are the inner shell's positionals, not ours
+check "close-root: refuses a marker whose door value merely LOOKS closed" 1 "names no root-door policy" \
+  bash -c '. "$1/commands/lib/users-config.sh"; assert_marker_closes_root "$2"' _ "$ROOT" "$DOOR_FIX/bogus"
+# Whitespace normalisation: a hand-edit using tabs is still a real marker and
+# must read the same, or anchoring would trade one silent misread for another.
+check "root_door_of: tab-separated fields read the same as space-separated" 0 "[closed]" \
+  door_of "$(printf 'role=x\troot-door=closed\thost=no')"
+rm -rf "$DOOR_FIX"
 if [ "$(id -u)" -ne 0 ]; then
   check "users close-root: refuses non-root" 1 "must run as root" "$ROOT/commands/users-close-root.sh"
 else

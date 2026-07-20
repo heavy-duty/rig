@@ -67,6 +67,21 @@ on the way to cutting its first release, and this file starts there.
   told to re-run bootstrap — never a door welded shut on a machine whose only
   entrance it was.
 
+  The resolver matches **whole fields, not substrings** — the marker is one
+  line of space-separated `key=value` pairs, so it pads both ends and matches
+  on field boundaries. Review caught the first cut doing unanchored matching,
+  which resolved any value that *extended* a real one: `root-door=closedish`
+  read as `closed` and passed close-root's gate — the single arm that
+  authorizes an irreversible act — and `class=humanoid` did the same through
+  the compat arm, both contradicting the resolver's own promise that a value
+  outside the set resolves empty and fails closed. Only reachable by hand-
+  editing a marker, so never a live incident, but this is the one function
+  every consumer trusts and it owes them exactness rather than nearly. Both
+  vocabularies are anchored: fixing only the current spelling would have left
+  every pre-#77 box carrying the hole. Whitespace is normalised first, so a
+  hand-edit using tabs reads the same rather than trading one silent misread
+  for another.
+
   **New markers are written in the new vocabulary only.** Writing both would
   keep an old rig reading a new marker, but it would entrench the retired
   spelling on every box rig ever converges and make the disagreement case
