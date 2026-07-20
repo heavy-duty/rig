@@ -740,7 +740,7 @@ VIRT       kvm
 PROVENANCE
 CONVERGED  0.6.0, 2026-08-02T09:11:03Z
 BOOTSTRAP  0.4.0, 2026-07-19T14:24:51Z
-ROLE       dev (class=human host=yes join=authkey)
+ROLE       dev-server (root-door=closed host=yes join=authkey)
 ```
 
 "Is this the 32GB one, or the M900?" was previously a question you answered by

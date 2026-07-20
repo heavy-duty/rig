@@ -170,9 +170,12 @@ if [ -r "$MANIFEST" ]; then
   if [ -z "$M_SCHEMA$B_BY$B_AT$C_BY$C_AT" ]; then
     field RIG "manifest present but carries no recognised fields ($MANIFEST)"
   else
-    # 'not recorded' rather than 'unknown': under #61's rule 2 converged_* is
-    # written only when the version actually differs, so its absence is a
-    # legitimate state on a freshly bootstrapped box, not a lost value.
+    # 'not recorded' rather than 'unknown', and it does NOT describe a fresh
+    # box: #61's writer records both pairs equally at bootstrap, so no writer
+    # produces a manifest missing converged_* — its absence means the file is
+    # partial or hand-edited. Deliberately not backfilled from bootstrapped_*,
+    # because inferring a convergence that never happened is worse than saying
+    # the record is not there. README and the fixtures pin exactly this.
     field CONVERGED "${C_BY:-not recorded}${C_AT:+, $C_AT}"
     field BOOTSTRAP "${B_BY:-not recorded}${B_AT:+, $B_AT}"
     [ -n "$M_SCHEMA" ] && [ "$M_SCHEMA" != "1" ] && \
@@ -182,8 +185,11 @@ else
   field RIG "not bootstrapped (no $MANIFEST)"
 fi
 
-# The role marker is bootstrap's own line — 'role=dev class=human host=yes
-# join=authkey' — printed as the role plus its traits.
+# The role marker is bootstrap's own line — 'role=dev-server
+# root-door=closed host=yes join=authkey' — printed as the role plus its
+# traits. The example tracks the CURRENT vocabulary (#76's -server/-box role
+# suffixes, #77's root-door trait); this command renders whatever fields the
+# marker carries, so a pre-rename box still prints its own class= line as-is.
 MARKER_LINE="$(read_role_marker "$MARKER")"
 if [ -n "$MARKER_LINE" ]; then
   ROLE_NAME="" ROLE_TRAITS=""
