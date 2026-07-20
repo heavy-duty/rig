@@ -1888,6 +1888,29 @@ check "uninstall --all: RIG_YES=1 is consent without a terminal" 0 "uninstalled"
 check "uninstall --all: ZERO residue — root and symlinks" 0 "" bash -c "
   [ ! -e '$H2' ] && [ ! -L '$H2' ] &&
   [ ! -e '$B2/rig' ] && [ ! -L '$B2/rig' ]"
+# --- the INTERACTIVE confirm, driven through a real pty (#68) ---------------
+# uninstall_confirm only reaches its `read` when stdin is a terminal, which is
+# why every check above goes through --force or RIG_YES and why the EOF bug
+# survived. `script` gives us the terminal. Assert on the MESSAGE, never on the
+# exit code: the unfixed `read -r reply` (no `|| reply=""`) dies at the read
+# under `set -e` and also exits 1, just silently — an exit-code assertion is
+# green against the bug and proves nothing.
+if command -v script >/dev/null 2>&1; then
+  H8="$WORK/h8"; B8="$WORK/b8"
+  inst "$H8" "$B8" >/dev/null 2>&1
+  check "uninstall: Ctrl-D at the confirm prompt ABORTS OUT LOUD (#68)" 1 "aborted." \
+    irig bash -c "script -qec \"'$B8/rig' uninstall --all\" /dev/null </dev/null"
+  check "uninstall: ...and the EOF abort removed nothing" 0 "" \
+    bash -c "[ -e '$H8' ] && [ -e '$B8/rig' ]"
+  printf 'y\n' > "$WORK/yes-in"
+  check "uninstall: 'y' at the confirm prompt goes through" 0 "uninstalled" \
+    irig bash -c "script -qec \"'$B8/rig' uninstall --all\" /dev/null < '$WORK/yes-in'"
+  check "uninstall: ...and that really removed the install" 0 "" \
+    bash -c "[ ! -e '$H8' ] && [ ! -e '$B8/rig' ]"
+else
+  echo "skip: interactive uninstall confirm drills (no util-linux script)"
+fi
+
 # The last word is a re-check: a survivor must turn into a loud INCOMPLETE,
 # never a cheerful "uninstalled". (Root ignores file modes, so this drill is
 # meaningful — and runnable — for a non-root runner only.)

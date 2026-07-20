@@ -241,7 +241,12 @@ uninstall_confirm() {   # $1 = question
   fi
   local reply
   printf 'rig: %s? [y/N] ' "$1"
-  read -r reply
+  # `|| reply=""` is load-bearing under `set -e`: Ctrl-D makes read return
+  # non-zero, and as a plain-statement call site this function would die HERE,
+  # before the case — the abort would be real but completely silent. Empty
+  # falls through to the `*)` arm, so EOF aborts with exactly one message,
+  # the same spelling commands/db.sh uses for the same [y/N] shape.
+  read -r reply || reply=""
   case "$reply" in y|Y|yes|YES|Yes) return 0 ;; *) die "aborted." ;; esac
 }
 
