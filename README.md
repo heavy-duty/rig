@@ -15,28 +15,24 @@ takes arguments, does its work, and stores no credential, ever.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/heavy-duty/rig/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/heavy-duty/rig/main/install.sh | RIG_REF=main bash
 ```
 
-That installs the **latest release**: the installer resolves the newest tag
-by following GitHub's `releases/latest` redirect (no API, no token) and
-downloads that tag's source tarball — which, for a pure-bash tree, *is* the
-package. Three channels from the same script; `RIG_REF` picks:
+This README tracks `main`, so the quick start installs that same development
+tree. To install a stable version instead, use the latest-release or pinned-tag
+channel and read the documentation shipped with it at
+`$RIG_HOME/current/README.md` (`~/.local/share/rig/current/README.md` with the
+default install root). Three channels come from the same script; `RIG_REF`
+picks:
 
 ```sh
 curl -fsSL .../install.sh | bash                   # the latest release
-curl -fsSL .../install.sh | RIG_REF=0.1.0 bash     # pinned to a release
+curl -fsSL .../install.sh | RIG_REF=0.2.0 bash     # pinned to a release
 curl -fsSL .../install.sh | RIG_REF=main bash      # the development tree
 ```
 
 A tag outranks a branch of the same name (the pin must win); anything that
 is not a tag falls back to `refs/heads/<ref>`.
-
-> **Transitional, until 0.1.0 is cut** (right after rig#32 lands): rig has
-> no GitHub release yet, so the default channel has nothing to resolve —
-> it **fails loudly** naming `RIG_REF=main` as the way to install today,
-> and never silently falls back to main. Once 0.1.0 exists, the plain
-> `curl | bash` above is the normal path.
 
 The layout, under the install root (`~/.local/share/rig`):
 
@@ -464,9 +460,9 @@ command is exactly who that refusal catches (it names the new spelling).
 > above.** The seed preinstalls rig via its curl installer, which resolves
 > `RIG_REPO`/`RIG_REF` — and since rig#32 the installer defaults to the
 > **latest release**, with `RIG_REF=<tag>` the pin and `RIG_REF=main` the
-> dev channel. Until rig cuts 0.1.0 there is no release to resolve, so the
-> seed must set `RIG_REF=main` explicitly (the default channel fails loudly
-> rather than falling back). That inverts the install edge on this page:
+> dev channel. A seed that needs main must set `RIG_REF=main` explicitly;
+> the default channel never silently falls back to a development branch.
+> That inverts the install edge on this page:
 > rig installs box on VM-hosting machines, and box guests now install rig.
 > `RIG_REPO`/`RIG_REF` are the pin points, or point them at a frozen branch
 > of your own fork. The seed side of this edge is box#81's to document.

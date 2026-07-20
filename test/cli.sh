@@ -427,6 +427,24 @@ check "bootstrap: --users does not reach the tenant roles" 2 "unknown flag" \
   "$ROOT/commands/bootstrap.sh" claude-box --users "$BOOT_USERS/ok"
 check "bootstrap: usage explains why tenants take no --users" 0 "box-minted GUEST" \
   "$ROOT/commands/bootstrap.sh" --help
+# --- README: install channels (#89) ------------------------------------------
+# The README on main documents main's CLI, so its FIRST full install command
+# must opt into that tree instead of silently selecting an older release.
+readme_first_full_install="$(grep -m1 -F 'curl -fsSL https://raw.githubusercontent.com/heavy-duty/rig/main/install.sh' "$ROOT/README.md")"
+check "README: the main-branch quick start installs the documented tree" 0 "" \
+  test "$readme_first_full_install" = \
+    'curl -fsSL https://raw.githubusercontent.com/heavy-duty/rig/main/install.sh | RIG_REF=main bash'
+check "README: no stale pre-0.1.0 release notice" 1 "" \
+  grep -qF 'Until rig cuts 0.1.0' "$ROOT/README.md"
+check "README: still documents the latest-release channel" 0 "" \
+  grep -qF 'curl -fsSL .../install.sh | bash                   # the latest release' "$ROOT/README.md"
+# $RIG_HOME is the literal path spelling the README must show operators.
+# shellcheck disable=SC2016
+check "README: names the stable channel's installed documentation" 0 "" \
+  grep -qF '$RIG_HOME/current/README.md' "$ROOT/README.md"
+check "README: still documents a pinned semver-tag channel" 0 "" \
+  grep -Eq '^curl -fsSL \.\.\./install\.sh \| RIG_REF=[0-9]+\.[0-9]+\.[0-9]+ bash +# pinned to a release$' "$ROOT/README.md"
+
 # --- README: the box rename (#12) --------------------------------------------
 # The philosophy line must point at heavy-duty/box — the old claudebox slug
 # only works through a GitHub redirect that one squatted rename away from
