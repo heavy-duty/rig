@@ -10,7 +10,7 @@
 # Creds-free BY CONTRACT: box auto-runs these at mint ('box exec … rig
 # bootstrap claude'), so every path here is non-interactive and nothing joins
 # or admits — no tailnet, no keys, no prompts. staging's tailnet join stays
-# operator-run ('rig bootstrap workload' through 'box shell'), exactly the
+# operator-run ('rig bootstrap workload-server' through 'box shell'), exactly the
 # creds split box#69 designed.
 # Convergent: safe to re-run; a second run changes nothing.
 set -euo pipefail
@@ -43,7 +43,7 @@ tenant on top, and re-runs converge an existing box to a new spec.
                       hardening. The tailnet workload join is deliberately
                       NOT here — it holds a credential, so it stays
                       operator-run: `box shell` → `sudo rig bootstrap
-                      workload` with a tagged pre-auth key.
+                      workload-server` with a tagged pre-auth key.
 
   --user <name>       the tenant user the box seed created (default: the
                       role's name; staging defaults to `ops`)
@@ -77,10 +77,10 @@ while [ $# -gt 0 ]; do
       # from the box seed, and the one trait-shaped thing a staging guest
       # eventually does (join the tailnet as a workload) is deliberately not
       # here: it holds a credential, so it stays operator-run.
-      die "tenant roles have no traits: $1 belongs to the machine roles (control-plane|workload|runner|dev|workstation|custom). A tenant box's shape comes from its seed; staging's tailnet join is operator-run via 'rig bootstrap workload'." 2 ;;
+      die "tenant roles have no traits: $1 belongs to the machine roles (control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom). A tenant box's shape comes from its seed; staging's tailnet join is operator-run via 'rig bootstrap workload-server'. The METAL that hosts these guests is 'rig bootstrap staging-server'." 2 ;;
     --ts-tag)
       [ $# -ge 2 ] && shift
-      die "--ts-tag is gone and tenant roles never join the tailnet anyway. staging's join is operator-run via 'rig bootstrap workload', where the tag comes from the pre-auth key." 2 ;;
+      die "--ts-tag is gone and tenant roles never join the tailnet anyway. staging's join is operator-run via 'rig bootstrap workload-server', where the tag comes from the pre-auth key." 2 ;;
     *) die "unknown flag: $1" 2 ;;
   esac
 done
@@ -384,7 +384,7 @@ fi
 
 log "done — tenant ${ROLE}, user ${TENANT_USER}"
 if [ "$ROLE" = "staging" ]; then
-  log "next (operator-run, holds a credential): box shell → sudo rig bootstrap workload --hostname <name> with a tagged pre-auth key"
+  log "next (operator-run, holds a credential): box shell → sudo rig bootstrap workload-server --hostname <name> with a tagged pre-auth key"
 else
   log "next: creds stay with the operator — ${CLI} authenticates through its own interactive login when a human decides"
 fi

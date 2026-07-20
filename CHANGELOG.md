@@ -49,6 +49,15 @@ on the way to cutting its first release, and this file starts there.
   branch until it is re-bootstrapped. That check has always been advisory and
   never a gate, so the run still proceeds and the warning names the repair.
 
+  The rename also reaches every string that *tells an operator to run a role*,
+  not just the code that accepts one — `bootstrap-tenant.sh` emits the staging
+  guest's tailnet-join next step (`sudo rig bootstrap workload-server`), and
+  two of its refusals recite the machine-role list. A stale next-step is worse
+  than a stale flag: it fails when someone copy-pastes it, on a different box,
+  minutes after the run that printed it reported success. `test/cli.sh` sweeps
+  every shipped script for pre-rename role names rather than pinning the known
+  sites, because the next instance of this will be somewhere else.
+
   `dev-server` is `class=human`, which reads like a contradiction and is not:
   the suffix names the family, the class names the root-SSH door policy, and
   operators enter a dev box as themselves so `close-root` shuts its door. The

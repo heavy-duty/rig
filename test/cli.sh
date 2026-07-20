@@ -93,6 +93,19 @@ check "bootstrap: workstation keeps its bare name" 2 "unset TS_AUTHKEY" \
   env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workstation
 check "bootstrap: custom keeps its bare name" 2 "--hostname" \
   "$ROOT/commands/bootstrap.sh" custom --class server --host no --join authkey
+# NOTHING may still TELL an operator to run a pre-#76 role. The rename is a
+# hard cut, so a next-step string, a usage line or a refusal that still recites
+# a bare role name is a command that fails when someone copy-pastes it — and it
+# fails later and further from the cause than a broken flag would, because it
+# fails on a different box, minutes after this run reported success. The tenant
+# script is the one that emits the staging guest's workload-join next step, so
+# it is where this bites first (caught in review on #80, fixed here where the
+# rename actually happens). Swept across every shipped script rather than
+# asserted at the one known site: the next instance of this will be somewhere
+# else, and a site-specific check would not see it.
+check "roles: no shipped script tells an operator to run a pre-#76 role name" 1 "" \
+  grep -rnE "rig bootstrap (control-plane|workload|runner|dev)( |'|\"|$)" \
+    "$ROOT/bin/rig" "$ROOT/commands/"
 # --- traits: roles are presets, every trait individually settable (#26) -----
 check "bootstrap: unknown role still exits 2"    2 "unknown role" "$ROOT/commands/bootstrap.sh" potato
 check "bootstrap: bad --class value exits 2"     2 "human|server" "$ROOT/commands/bootstrap.sh" workload-server --class potato
@@ -624,6 +637,12 @@ MARKER_FIX="$(mktemp -d)"
 printf 'role=workload-server class=server host=no join=authkey\n'      > "$MARKER_FIX/workload"
 printf 'role=control-plane-server class=server host=no join=authkey\n' > "$MARKER_FIX/control-plane"
 printf 'role=control-plane-server\n'                                   > "$MARKER_FIX/bare-control-plane"
+# A PRE-#76 marker, verbatim as a real box bootstrapped before the rename
+# carries it. This is the one fixture that must keep its old spelling: the
+# CHANGELOG promises such a box takes the warning branch and keeps working,
+# and until this existed nothing asserted it — every other fixture here was
+# renamed with the code, so the migration story was documented and untested.
+printf 'role=control-plane class=server host=no join=authkey\n'        > "$MARKER_FIX/pre-rename-cp"
 if [ "$(id -u)" -ne 0 ]; then
   check "coolify: warns on a non-control-plane marker" 0 "1" \
     marker_warns "$MARKER_FIX/workload" "$ROOT/commands/coolify-install.sh" --version 4.1.2
@@ -635,6 +654,17 @@ if [ "$(id -u)" -ne 0 ]; then
     marker_warns "$MARKER_FIX/bare-control-plane" "$ROOT/commands/coolify-install.sh" --version 4.1.2
   check "coolify: absent marker stays silent (advisory, not a gate)" 0 "0" \
     marker_warns "$MARKER_FIX/absent" "$ROOT/commands/coolify-install.sh" --version 4.1.2
+  # The migration story, pinned in both halves: a pre-#76 control plane WARNS
+  # (its marker no longer names a role that exists) but is never refused. Both
+  # halves matter — a rename that turned this into a refusal would break the
+  # exact boxes the CHANGELOG promises keep working, and it would do it on the
+  # command that installs the control plane.
+  check "coolify: a PRE-#76 'role=control-plane' marker warns (migration)" 0 "1" \
+    marker_warns "$MARKER_FIX/pre-rename-cp" "$ROOT/commands/coolify-install.sh" --version 4.1.2
+  check "coolify: ...and is still never refused" 1 "must run as root" \
+    env RIG_ROLE_MARKER="$MARKER_FIX/pre-rename-cp" "$ROOT/commands/coolify-install.sh" --version 4.1.2
+  check "coolify backup: a PRE-#76 'role=control-plane' marker warns (migration)" 0 "1" \
+    marker_warns "$MARKER_FIX/pre-rename-cp" "$ROOT/commands/coolify-backup-install.sh"
   # The warning must stay a warning: the run proceeds past it and stops at the
   # root check (exit 1), never turned into a marker refusal.
   check "coolify: the marker warns but never refuses" 1 "must run as root" \
