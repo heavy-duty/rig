@@ -77,10 +77,13 @@ done
 # certainly means the wrong SSH session — but the marker is advisory and may be
 # absent, so WARN, never die, and warn before the root check so the harness can
 # prove it non-root (RIG_ROLE_MARKER points it at fixtures, repo precedent).
+# Matches the ROLE NAME, so #76's rename reaches it the same way it reaches
+# `coolify install` — a pre-rename marker takes the warning branch, which is
+# the hard cut behaving as designed rather than a regression.
 MARKER_LINE="$(read_role_marker "${RIG_ROLE_MARKER:-/etc/rig/role}")"
 case "$MARKER_LINE" in
-  ""|"role=control-plane"|"role=control-plane "*) ;;
-  *) warn "this box's role marker says '${MARKER_LINE}' — not a control-plane box. The nightly dump targets Coolify's own database, which lives on role control-plane; if this is the wrong box, stop here and re-check your SSH session." ;;
+  ""|"role=control-plane-server"|"role=control-plane-server "*) ;;
+  *) warn "this box's role marker says '${MARKER_LINE}' — not a control-plane box. The nightly dump targets Coolify's own database, which lives on role control-plane-server; if this is the wrong box, stop here and re-check your SSH session." ;;
 esac
 
 # --- guards ----------------------------------------------------------------

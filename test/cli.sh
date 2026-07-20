@@ -34,8 +34,8 @@ check "bare coolify shows usage, exit 2" 2 "usage:" "$ROOT/bin/rig" coolify
 check "bootstrap: role required, exit 2"   2 "role required"  "$ROOT/commands/bootstrap.sh"
 check "bootstrap: --help exits 0"          0 "usage:"         "$ROOT/commands/bootstrap.sh" --help
 check "bootstrap: unknown role exits 2"    2 "unknown role"   "$ROOT/commands/bootstrap.sh" potato
-check "bootstrap: unknown flag exits 2"    2 "unknown flag"   "$ROOT/commands/bootstrap.sh" workload --nope
-check "bootstrap: hostname needs value"    2 "needs a value"  "$ROOT/commands/bootstrap.sh" workload --hostname
+check "bootstrap: unknown flag exits 2"    2 "unknown flag"   "$ROOT/commands/bootstrap.sh" workload-server --nope
+check "bootstrap: hostname needs value"    2 "needs a value"  "$ROOT/commands/bootstrap.sh" workload-server --hostname
 # --ts-tag is REMOVED, not demoted: the tag now comes from the pre-auth key and
 # rig verifies the GRANTED tag after join. The old runner-refuses-tag:server test
 # asserted the request-time refusal THROUGH this flag; that policy now lives on
@@ -44,25 +44,60 @@ check "bootstrap: hostname needs value"    2 "needs a value"  "$ROOT/commands/bo
 # at the key (exit 2, a usage error), rather than an "unknown flag" that would
 # leave an operator guessing where the tag went — value present or absent.
 check "bootstrap: --ts-tag is removed (with value), exit 2" 2 "comes from the pre-auth key" \
-  "$ROOT/commands/bootstrap.sh" runner --ts-tag tag:server
+  "$ROOT/commands/bootstrap.sh" runner-server --ts-tag tag:server
 check "bootstrap: --ts-tag is removed (no value), exit 2"   2 "comes from the pre-auth key" \
-  "$ROOT/commands/bootstrap.sh" runner --ts-tag
+  "$ROOT/commands/bootstrap.sh" runner-server --ts-tag
 # staging is a box TENANT role since #31 (the guest, not the VM host), and it
 # never joins the tailnet — but --ts-tag on it must still die with a story,
 # not an "unknown flag": scripts from its trait-preset life may pass it, and
 # the message must say where both the tag AND the join went.
 check "bootstrap: staging + removed --ts-tag exits 2" 2 "never join the tailnet" \
   "$ROOT/commands/bootstrap.sh" staging --ts-tag tag:server
-# The old staging effective-tag refusal guarded the VM-HOST shape, which now
-# rides the traits (custom/dev --class server) — the catch-all tag:server
-# refusal must still own that shape, so grep the general die instead.
+# The VM-HOST shape has a named role again (staging-server, #76), but it is
+# still not one of the two the control plane manages, so the catch-all
+# tag:server refusal must own it. Grep-pinned so a deleted guard cannot ship
+# green (repo precedent: the login-path refusal below).
 check "bootstrap: the catch-all tag:server refusal is present" 0 "" \
-  grep -q "Only control-plane and workload are managed by the control plane" "$ROOT/commands/bootstrap.sh"
+  grep -q "Only control-plane-server and workload-server are managed by the control plane" "$ROOT/commands/bootstrap.sh"
+# ...and staging-server must NOT have slipped into the allow-list arm beside
+# control-plane-server|workload-server. A new preset silently landing there
+# would extend every server grant to a VM host, which is the exact shape the
+# refusal exists to prevent — and nothing else in the suite would notice.
+check "bootstrap: staging-server is not in the tag:server allow-list" 1 "" \
+  grep -qE '^ *control-plane-server\|workload-server\)[^#]*staging-server' "$ROOT/commands/bootstrap.sh"
+
+# --- the role taxonomy (#76): -server names the family, and it was a hard cut -
+# Every machine role carries the suffix; custom and workstation deliberately do
+# not. Proven by reaching the ROOT CHECK, which is the last thing before the
+# converge and therefore proof the name resolved to a preset.
+if [ "$(id -u)" -ne 0 ]; then
+  for r in control-plane-server workload-server runner-server staging-server dev-server; do
+    check "bootstrap: role $r resolves" 1 "must run as root" \
+      env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" "$r" --no-users
+  done
+fi
+# THE HARD CUT. No aliases: the pre-#76 names are gone, and must fail as
+# UNKNOWN rather than quietly resolving to anything. Asserted per name because
+# an alias accidentally left in for one role is exactly the shape that survives
+# review — the taxonomy reads as complete while one old name still works.
+# 'staging' is deliberately absent: it still routes to the TENANT mechanism at
+# this point in the stack, and the tenant rename lands in its own change.
+for r in control-plane workload runner dev; do
+  check "bootstrap: the pre-#76 name '$r' is gone (hard cut)" 2 "unknown role" \
+    "$ROOT/commands/bootstrap.sh" "$r"
+done
+# ...but the two roles that legitimately carry no suffix must NOT have been
+# swept up in the rename. This is the inverse error and it fails silently: a
+# workstation that stopped resolving would only surface at someone's laptop.
+check "bootstrap: workstation keeps its bare name" 2 "unset TS_AUTHKEY" \
+  env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workstation
+check "bootstrap: custom keeps its bare name" 2 "--hostname" \
+  "$ROOT/commands/bootstrap.sh" custom --class server --host no --join authkey
 # --- traits: roles are presets, every trait individually settable (#26) -----
 check "bootstrap: unknown role still exits 2"    2 "unknown role" "$ROOT/commands/bootstrap.sh" potato
-check "bootstrap: bad --class value exits 2"     2 "human|server" "$ROOT/commands/bootstrap.sh" workload --class potato
-check "bootstrap: bad --host value exits 2"      2 "yes|no"       "$ROOT/commands/bootstrap.sh" workload --host maybe
-check "bootstrap: bad --join value exits 2"      2 "authkey|login" "$ROOT/commands/bootstrap.sh" workload --join carrier-pigeon
+check "bootstrap: bad --class value exits 2"     2 "human|server" "$ROOT/commands/bootstrap.sh" workload-server --class potato
+check "bootstrap: bad --host value exits 2"      2 "yes|no"       "$ROOT/commands/bootstrap.sh" workload-server --host maybe
+check "bootstrap: bad --join value exits 2"      2 "authkey|login" "$ROOT/commands/bootstrap.sh" workload-server --join carrier-pigeon
 check "bootstrap: custom without --hostname exits 2" 2 "--hostname" \
   "$ROOT/commands/bootstrap.sh" custom --class server --host no --join authkey
 check "bootstrap: custom without traits exits 2" 2 "--class" "$ROOT/commands/bootstrap.sh" custom --hostname box1
@@ -75,7 +110,7 @@ check "bootstrap: workstation + TS_AUTHKEY exits 2" 2 "unset TS_AUTHKEY" \
 # join=authkey (TS_AUTHKEY fine → falls through to the root check), but
 # --join login flips it into the TS_AUTHKEY refusal.
 check "bootstrap: dev --join login + TS_AUTHKEY exits 2" 2 "unset TS_AUTHKEY" \
-  env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" dev --join login
+  env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" dev-server --join login
 # The login-path inverted assertion needs a real tailnet; grep the refusal so a
 # deleted guard cannot ship green (repo precedent: staging/runner tag greps).
 check "bootstrap: login-path tagged refusal is present" 0 "" \
@@ -186,33 +221,33 @@ printf '%s\n' 'maria ops ssh-ed25519 AAAA maria@mac'               > "$BOOT_USER
 # to skip it type the identical command — the error is the only place rig can
 # tell them apart.
 check "bootstrap: omitting --users and --no-users exits 2" 2 "one of --users <path> or --no-users is required" \
-  "$ROOT/commands/bootstrap.sh" workload
+  "$ROOT/commands/bootstrap.sh" workload-server
 check "bootstrap: the requirement names --no-users as the way out" 2 "--no-users to leave it root-only" \
-  "$ROOT/commands/bootstrap.sh" dev --hostname b
+  "$ROOT/commands/bootstrap.sh" dev-server --hostname b
 check "bootstrap: the requirement holds on class=server too" 2 "one of --users" \
-  "$ROOT/commands/bootstrap.sh" control-plane --hostname cp
+  "$ROOT/commands/bootstrap.sh" control-plane-server --hostname cp
 check "bootstrap: --users needs a value" 2 "needs a value" \
-  "$ROOT/commands/bootstrap.sh" workload --users
+  "$ROOT/commands/bootstrap.sh" workload-server --users
 # MUTUAL EXCLUSION, both orders: rig refuses to pick a winner rather than let a
 # precedence rule decide who may enter the box. Both orders, because a
 # "last flag wins" implementation would pass one of them silently.
 check "bootstrap: --users with --no-users exits 2" 2 "contradictory" \
-  "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/ok" --no-users
+  "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/ok" --no-users
 check "bootstrap: --no-users with --users exits 2 (either order)" 2 "contradictory" \
-  "$ROOT/commands/bootstrap.sh" workload --no-users --users "$BOOT_USERS/ok"
+  "$ROOT/commands/bootstrap.sh" workload-server --no-users --users "$BOOT_USERS/ok"
 # Pre-flight: an unreadable or invalid file dies at the top of the run, exit 2,
 # before the root check — the same contract every other flag here has.
 check "bootstrap: an unreadable users file exits 2" 2 "cannot read users file" \
-  "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/nope"
+  "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/nope"
 check "bootstrap: an invalid users file exits 2 with the parser's errors" 2 "invalid users file" \
-  "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/bad"
+  "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/bad"
 check "bootstrap: the invalid-file refusal carries the parser's own line error" 2 "valid roles: admin rig box" \
-  "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/bad"
+  "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/bad"
 # '-' is apply's stdin convenience and cannot survive the trip through
 # bootstrap: stdin here is the pre-auth key prompt's. Refused, with the split
 # ('--no-users' then apply by hand) named.
 check "bootstrap: --users - is refused, naming the pre-auth key prompt" 2 "pre-auth key prompt" \
-  "$ROOT/commands/bootstrap.sh" workload --users -
+  "$ROOT/commands/bootstrap.sh" workload-server --users -
 # A file that parses to ZERO users (#57). Not a parse error — the parser is
 # right to accept empty, comments-only and whitespace-only files — but it walks
 # straight through #51's requirement: `--users ./empty` and `--no-users`
@@ -227,23 +262,23 @@ cat > "$BOOT_USERS/comments" <<'USERS'
 USERS
 printf '   \n\t\n\n' > "$BOOT_USERS/blank"
 check "bootstrap: an empty users file exits 2" 2 "names no users" \
-  "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/empty"
+  "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/empty"
 check "bootstrap: a comments-only users file exits 2" 2 "names no users" \
-  "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/comments"
+  "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/comments"
 check "bootstrap: a whitespace-only users file exits 2" 2 "names no users" \
-  "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/blank"
+  "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/blank"
 # The refusal must name --no-users, for the same reason the missing-flag one
 # does: the root-only box IS reachable, it just has to be said out loud. An
 # error that only reported "no users" would leave the operator who genuinely
 # wants root-only with no named way to ask for it.
 check "bootstrap: the zero-user refusal names --no-users as the way to say it" 2 "pass --no-users to leave this box root-only" \
-  "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/empty"
+  "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/empty"
 # It must NOT over-refuse: a file that names even one operator passes pre-flight
 # untouched. Reaching the root check (exit 1) is the proof — same idiom as the
 # incus precondition's negative cases below.
 if [ "$(id -u)" -ne 0 ]; then
   check "bootstrap: a users file naming operators still passes pre-flight" 1 "must run as root" \
-    env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/ok"
+    env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/ok"
 fi
 # Scope guard (#57): the refusal is BOOTSTRAP's contract, not the parser's and
 # not apply's. A standalone `rig users apply` against an emptied file is a real
@@ -295,19 +330,19 @@ chmod +x "$INCUS_SHIM_NO/getent" "$INCUS_SHIM_YES/getent" \
          "$BOXLESS_SHIM/getent" "$INCUS_SHIM_YES/box"
 check "bootstrap: host=yes + box role + no incus + skipped box install exits 2" 2 "group incus is absent" \
   env RIG_SKIP_BOX_INSTALL=1 PATH="$INCUS_SHIM_NO:$PATH" \
-      "$ROOT/commands/bootstrap.sh" dev --hostname h --users "$BOOT_USERS/box"
+      "$ROOT/commands/bootstrap.sh" dev-server --hostname h --users "$BOOT_USERS/box"
 check "bootstrap: that refusal points at box setup-host, not at rig" 2 "rig never installs Incus" \
   env RIG_SKIP_BOX_INSTALL=1 PATH="$INCUS_SHIM_NO:$PATH" \
-      "$ROOT/commands/bootstrap.sh" dev --hostname h --users "$BOOT_USERS/box"
+      "$ROOT/commands/bootstrap.sh" dev-server --hostname h --users "$BOOT_USERS/box"
 # The group can be there while the CLI is not — #49's die owns that shape, and
 # under the skip it is just as final and just as knowable now. PATH is built
 # WITHOUT the real one so the absence is the test's, not the machine's.
 check "bootstrap: host=yes + box role + incus group + no box CLI + skip exits 2" 2 "box CLI is not on PATH" \
   env RIG_SKIP_BOX_INSTALL=1 PATH="$BOXLESS_SHIM:/usr/bin:/bin" \
-      "$ROOT/commands/bootstrap.sh" dev --hostname h --users "$BOOT_USERS/box"
+      "$ROOT/commands/bootstrap.sh" dev-server --hostname h --users "$BOOT_USERS/box"
 check "bootstrap: that refusal names the tier, not just the socket" 2 "the restricted tier is 'box grant'" \
   env RIG_SKIP_BOX_INSTALL=1 PATH="$BOXLESS_SHIM:/usr/bin:/bin" \
-      "$ROOT/commands/bootstrap.sh" dev --hostname h --users "$BOOT_USERS/box"
+      "$ROOT/commands/bootstrap.sh" dev-server --hostname h --users "$BOOT_USERS/box"
 if [ "$(id -u)" -ne 0 ]; then
   # It must NOT fire in the three shapes that are not doomed. A users file with
   # no box-role user converges fine on a host that never saw Incus (refusing it
@@ -318,18 +353,18 @@ if [ "$(id -u)" -ne 0 ]; then
   # root check (exit 1) is the proof each passed the precondition.
   check "bootstrap: no box-role user means no incus precondition" 1 "must run as root" \
     env TS_AUTHKEY=x RIG_SKIP_BOX_INSTALL=1 PATH="$INCUS_SHIM_NO:$PATH" \
-        "$ROOT/commands/bootstrap.sh" dev --hostname h --users "$BOOT_USERS/ok"
+        "$ROOT/commands/bootstrap.sh" dev-server --hostname h --users "$BOOT_USERS/ok"
   check "bootstrap: an existing incus group satisfies the precondition" 1 "must run as root" \
     env TS_AUTHKEY=x RIG_SKIP_BOX_INSTALL=1 PATH="$INCUS_SHIM_YES:$PATH" \
-        "$ROOT/commands/bootstrap.sh" dev --hostname h --users "$BOOT_USERS/box"
+        "$ROOT/commands/bootstrap.sh" dev-server --hostname h --users "$BOOT_USERS/box"
   check "bootstrap: without the skip, the box install is left to create the group" 1 "must run as root" \
     env TS_AUTHKEY=x PATH="$INCUS_SHIM_NO:$PATH" \
-        "$ROOT/commands/bootstrap.sh" dev --hostname h --users "$BOOT_USERS/box"
+        "$ROOT/commands/bootstrap.sh" dev-server --hostname h --users "$BOOT_USERS/box"
   # host=no is the other side of apply's host= rule — the box role is skipped
   # with a warning there, never refused, so bootstrap must not refuse it either.
   check "bootstrap: host=no never gets the incus precondition" 1 "must run as root" \
     env TS_AUTHKEY=x RIG_SKIP_BOX_INSTALL=1 PATH="$INCUS_SHIM_NO:$PATH" \
-        "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/box"
+        "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/box"
 fi
 # rig does NOT resolve the open "should rig install box" question here: the
 # precondition refuses, it never calls setup-host itself. A grep that finds
@@ -399,10 +434,10 @@ if [ "$(id -u)" -ne 0 ]; then
   # required (#51), so reaching the root check at all proves it was accepted.
   # --no-users here keeps these asserts about the ROOT CHECK; the --users path
   # gets its own root-check assert below, against a valid fixture.
-  check "bootstrap: refuses non-root"      1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload --no-users
+  check "bootstrap: refuses non-root"      1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload-server --no-users
   check "bootstrap: --users file reaches the root check" 1 "must run as root" \
-    env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload --users "$BOOT_USERS/ok"
-  check "bootstrap: runner role parses, refuses non-root" 1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" runner --no-users
+    env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload-server --users "$BOOT_USERS/ok"
+  check "bootstrap: runner role parses, refuses non-root" 1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" runner-server --no-users
   # staging dispatches to the tenant mechanism now; reaching ITS root check
   # through bootstrap.sh proves the dispatch and the tenant arg pass in one go.
   # RIG_ROLE_MARKER points at an absent fixture: the tenant marker guard runs
@@ -410,7 +445,7 @@ if [ "$(id -u)" -ne 0 ]; then
   # a real /etc/rig/role of its own.
   check "bootstrap: staging dispatches to the tenant mechanism, refuses non-root" 1 "must run as root" \
     env RIG_ROLE_MARKER=/nonexistent/rig-role "$ROOT/commands/bootstrap.sh" staging
-  check "bootstrap: dev role parses, refuses non-root" 1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" dev --no-users
+  check "bootstrap: dev role parses, refuses non-root" 1 "must run as root" env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" dev-server --no-users
   check "bootstrap: workstation parses, refuses non-root" 1 "must run as root" env -u TS_AUTHKEY "$ROOT/commands/bootstrap.sh" workstation --no-users
   check "bootstrap: custom parses, refuses non-root" 1 "must run as root" \
     env TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" custom --hostname b --class server --host no --join authkey --no-users
@@ -457,8 +492,8 @@ check "bootstrap: tenant roles dispatch through bootstrap.sh" 0 "claude|codex|gr
 # A non-server machine (class=human via custom) is NOT that guest, and server
 # hardening would die at it with server-specific messaging — refuse instead.
 TEN_FIX="$(mktemp -d)"
-printf 'role=dev class=human host=yes join=authkey\n'      > "$TEN_FIX/host"
-printf 'role=workload class=server host=no join=authkey\n' > "$TEN_FIX/machine"
+printf 'role=dev-server class=human host=yes join=authkey\n'      > "$TEN_FIX/host"
+printf 'role=workload-server class=server host=no join=authkey\n' > "$TEN_FIX/machine"
 printf 'role=custom class=human host=no join=login\n'      > "$TEN_FIX/human"
 printf 'role=claude tenant=yes host=no\n'                  > "$TEN_FIX/tenant"
 check "tenant: staging refuses a non-server machine box" 1 "non-server machine role" \
@@ -586,9 +621,9 @@ marker_warns() { # marker_warns <marker_path> <cmd...> — how many warnings fir
   env RIG_ROLE_MARKER="$marker" "$@" 2>&1 | grep -c "not a control-plane box" || true
 }
 MARKER_FIX="$(mktemp -d)"
-printf 'role=workload class=server host=no join=authkey\n'      > "$MARKER_FIX/workload"
-printf 'role=control-plane class=server host=no join=authkey\n' > "$MARKER_FIX/control-plane"
-printf 'role=control-plane\n'                                   > "$MARKER_FIX/bare-control-plane"
+printf 'role=workload-server class=server host=no join=authkey\n'      > "$MARKER_FIX/workload"
+printf 'role=control-plane-server class=server host=no join=authkey\n' > "$MARKER_FIX/control-plane"
+printf 'role=control-plane-server\n'                                   > "$MARKER_FIX/bare-control-plane"
 if [ "$(id -u)" -ne 0 ]; then
   check "coolify: warns on a non-control-plane marker" 0 "1" \
     marker_warns "$MARKER_FIX/workload" "$ROOT/commands/coolify-install.sh" --version 4.1.2
@@ -596,7 +631,7 @@ if [ "$(id -u)" -ne 0 ]; then
     marker_warns "$MARKER_FIX/control-plane" "$ROOT/commands/coolify-install.sh" --version 4.1.2
   # A bare marker line with no trailing traits must read the same as the full
   # one — the guard must not couple to the marker's field formatting.
-  check "coolify: a bare 'role=control-plane' line (no traits) stays silent" 0 "0" \
+  check "coolify: a bare 'role=control-plane-server' line (no traits) stays silent" 0 "0" \
     marker_warns "$MARKER_FIX/bare-control-plane" "$ROOT/commands/coolify-install.sh" --version 4.1.2
   check "coolify: absent marker stays silent (advisory, not a gate)" 0 "0" \
     marker_warns "$MARKER_FIX/absent" "$ROOT/commands/coolify-install.sh" --version 4.1.2
@@ -992,11 +1027,11 @@ hostvm_gate() { # hostvm_gate <marker_path>
     assert_marker_hosts_vms "$2"' _ "$ROOT" "$1"
 }
 HOSTVM_FIX="$(mktemp -d)"
-printf 'role=dev class=human host=yes join=authkey\n'      > "$HOSTVM_FIX/yes"
-printf 'role=workload class=server host=no join=authkey\n' > "$HOSTVM_FIX/no"
+printf 'role=dev-server class=human host=yes join=authkey\n'      > "$HOSTVM_FIX/yes"
+printf 'role=workload-server class=server host=no join=authkey\n' > "$HOSTVM_FIX/no"
 # A marker that predates the host= trait (or was hand-edited): present, but it
 # names no host=. Distinct from an ABSENT marker and it must not read as yes.
-printf 'role=workload class=server join=authkey\n'         > "$HOSTVM_FIX/traitless"
+printf 'role=workload-server class=server join=authkey\n'         > "$HOSTVM_FIX/traitless"
 check "users apply: host=yes passes the box-role gate" \
   0 "" hostvm_gate "$HOSTVM_FIX/yes"
 check "users apply: host=no fails the box-role gate" \
@@ -1384,8 +1419,8 @@ marker_gate() { # marker_gate <marker_path>
     assert_marker_human "$2"' _ "$ROOT" "$1"
 }
 MARKER_DIR="$(mktemp -d)"
-printf 'role=workload class=server host=no join=authkey\n' > "$MARKER_DIR/server"
-printf 'role=dev class=human host=yes join=authkey\n'      > "$MARKER_DIR/human"
+printf 'role=workload-server class=server host=no join=authkey\n' > "$MARKER_DIR/server"
+printf 'role=dev-server class=human host=yes join=authkey\n'      > "$MARKER_DIR/human"
 check "users close-root: absent marker refuses, names bootstrap as the repair" \
   1 "no /etc/rig/role marker" marker_gate "$MARKER_DIR/absent"
 check "users close-root: class=server refuses, names the control plane" \
@@ -1549,7 +1584,7 @@ check "install: ...and does not move the default" 0 "rig $VER" irig "$B1/rig" --
 # host itself — /etc/rig/role. The deliberate decision: warn and proceed.
 # Driven against a fixture marker; counting fires proves silence too.
 MARK="$WORK/role-marker"
-printf 'role=workload class=server host=no join=authkey\n' > "$MARK"
+printf 'role=workload-server class=server host=no join=authkey\n' > "$MARK"
 H2="$WORK/h2"; B2="$WORK/b2"
 check "flip gate: baseline install" 0 "done" inst "$H2" "$B2"
 check "flip gate: an upgrade on a bootstrapped host WARNS" 0 "this host is bootstrapped" \
