@@ -8,6 +8,15 @@ on the way to cutting its first release, and this file starts there.
 
 ### Fixed
 
+- **CI runs `test/labels-reconcile.sh`, which it had never run** (#90) — the
+  file arrived with #87 and `ci.yml` was not extended to call it, so the label
+  state machine that gates every PR in this repo went covered only by whoever
+  remembered to run its fixtures by hand. #88 merged reporting 51 passing
+  fixtures: true on the author's machine, never once verified here. Box and
+  cast both ran the suite already; only rig did not, so this closes a rig-local
+  gap rather than a family-wide one. It was found by asking, while adding
+  fixtures to the suite, where the suite actually ran.
+
 - **`state:needs-human` no longer appears on PRs a human cannot merge**
   (#87, heavy-duty/box#136) — `decide_state()` derived state from three inputs
   (draft flag, requested reviewers, submitted reviews) and read *nothing* about
