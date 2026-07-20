@@ -438,8 +438,12 @@ check "README: no stale pre-0.1.0 release notice" 1 "" \
   grep -qF 'Until rig cuts 0.1.0' "$ROOT/README.md"
 check "README: still documents the latest-release channel" 0 "" \
   grep -qF 'curl -fsSL .../install.sh | bash                   # the latest release' "$ROOT/README.md"
-check "README: still documents the pinned-tag channel" 0 "" \
-  grep -qF 'curl -fsSL .../install.sh | RIG_REF=0.1.0 bash     # pinned to a release' "$ROOT/README.md"
+# $RIG_HOME is the literal path spelling the README must show operators.
+# shellcheck disable=SC2016
+check "README: names the stable channel's installed documentation" 0 "" \
+  grep -qF '$RIG_HOME/current/README.md' "$ROOT/README.md"
+check "README: still documents a pinned semver-tag channel" 0 "" \
+  grep -Eq '^curl -fsSL \.\.\./install\.sh \| RIG_REF=[0-9]+\.[0-9]+\.[0-9]+ bash +# pinned to a release$' "$ROOT/README.md"
 
 # --- README: the box rename (#12) --------------------------------------------
 # The philosophy line must point at heavy-duty/box — the old claudebox slug

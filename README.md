@@ -20,12 +20,14 @@ curl -fsSL https://raw.githubusercontent.com/heavy-duty/rig/main/install.sh | RI
 
 This README tracks `main`, so the quick start installs that same development
 tree. To install a stable version instead, use the latest-release or pinned-tag
-channel and follow the documentation shipped with that version. Three channels
-come from the same script; `RIG_REF` picks:
+channel and read the documentation shipped with it at
+`$RIG_HOME/current/README.md` (`~/.local/share/rig/current/README.md` with the
+default install root). Three channels come from the same script; `RIG_REF`
+picks:
 
 ```sh
 curl -fsSL .../install.sh | bash                   # the latest release
-curl -fsSL .../install.sh | RIG_REF=0.1.0 bash     # pinned to a release
+curl -fsSL .../install.sh | RIG_REF=0.2.0 bash     # pinned to a release
 curl -fsSL .../install.sh | RIG_REF=main bash      # the development tree
 ```
 
