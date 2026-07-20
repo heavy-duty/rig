@@ -22,7 +22,8 @@ die()  { printf 'rig-bootstrap: ERROR: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 usage() {
   cat <<'EOF'
-usage: rig bootstrap <control-plane|workload|runner|dev|workstation|custom>
+usage: rig bootstrap <control-plane-server|workload-server|runner-server|
+                      staging-server|dev-server|workstation|custom>
                      (--users <path> | --no-users)
                      [--hostname <name>] [--class <human|server>]
                      [--host <yes|no>] [--join <authkey|login>]
@@ -60,23 +61,39 @@ operator file has nothing to converge in there.
 Roles are presets over the three traits; any flag overrides its trait.
 custom presets nothing and requires --hostname plus all three traits.
 
-  role            class   host  join
-  control-plane   server  no    authkey
-  workload        server  no    authkey
-  runner          server  no    authkey
-  dev             human   yes   authkey
-  workstation     human   yes   login
+  role                   class   host  join
+  control-plane-server   server  no    authkey
+  workload-server        server  no    authkey
+  runner-server          server  no    authkey
+  staging-server         server  yes   authkey
+  dev-server             human   yes   authkey
+  workstation            human   yes   login
 
-The former staging VM-host preset is now spelled through the traits:
-'custom --class server --host yes --join authkey' (or 'dev --class server').
-'staging' names the box TENANT role today — the guest, not the host.
+THE SUFFIX NAMES THE FAMILY, not the class. '-server' means this role builds a
+fleet MACHINE — a tailnet node rig converges; '-box' (the tenant roles) means a
+GUEST a box mints. Two families lived in one flat namespace and nothing in a
+name said which you were asking for; 'staging' made that concrete by naming
+both the metal and the guests on it.
+
+  custom       no suffix: it presets nothing and can be any shape, a guest
+               included, so a family claim would be one it cannot make.
+  workstation  no suffix: somebody's own device, not fleet infrastructure —
+               it joins by interactive login and comes up user-owned and
+               untagged, and the tailnet never manages it.
+
+'dev-server' is class=human, and that is not a contradiction: the suffix names
+the family, the CLASS names the root-SSH door policy (operators enter a dev box
+as themselves, so 'users close-root' shuts its door). The two axes share the
+word 'server' and that is a genuine wart — tracked in #77, which renames the
+class trait to what it actually controls.
 
 The tailnet tag is NOT a rig argument. A pre-auth key is minted WITH its tags,
 so the key is the single source of truth: rig no longer requests a tag it might
 disagree with. After the box joins, rig reads the tag control actually GRANTED
 (tailscale status .Self.Tags) and asserts on THAT — an untagged key is refused
-outright, and only control-plane and workload may carry tag:server (they are
-the only shapes the control plane manages). Mint a correctly-tagged key.
+outright, and only control-plane-server and workload-server may carry
+tag:server (they are the only shapes the control plane manages). Mint a
+correctly-tagged key.
 
 join=authkey: provide the single-use tailscale pre-auth key via the TS_AUTHKEY
 env var, or enter it at the interactive prompt. Used once, never written to disk.
@@ -91,7 +108,7 @@ EOF
 # --- args (validated before the root check, so errors are testable) ---------
 ROLE="${1:-}"
 case "$ROLE" in
-  control-plane|workload|runner|dev|workstation|custom) shift ;;
+  control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom) shift ;;
   claude|codex|grok|staging)
     # The box TENANT roles (#31) are a different family — guests a box mints,
     # never tailnet machines — and live in their own mechanism, one script
@@ -99,8 +116,8 @@ case "$ROLE" in
     # stays the single entrypoint for both families.
     exec "$HERE/bootstrap-tenant.sh" "$@" ;;
   -h|--help) usage; exit 0 ;;
-  "") usage >&2; die "role required (control-plane|workload|runner|dev|workstation|custom — or a tenant role: claude|codex|grok|staging)" 2 ;;
-  *) die "unknown role: $ROLE (want control-plane|workload|runner|dev|workstation|custom — or a tenant role: claude|codex|grok|staging)" 2 ;;
+  "") usage >&2; die "role required (control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom — or a tenant role: claude|codex|grok|staging)" 2 ;;
+  *) die "unknown role: $ROLE (want control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom — or a tenant role: claude|codex|grok|staging)" 2 ;;
 esac
 
 # Role→traits map — the single place a role's shape is declared (issue #26).
@@ -109,11 +126,16 @@ esac
 # for the shape nobody foresaw — it declares nothing and must state all three.
 CLASS="" HOST="" JOIN=""
 case "$ROLE" in
-  control-plane) CLASS=server HOST=no  JOIN=authkey ;;
-  workload)      CLASS=server HOST=no  JOIN=authkey ;;
-  runner)        CLASS=server HOST=no  JOIN=authkey ;;
-  dev)           CLASS=human  HOST=yes JOIN=authkey ;;
-  workstation)   CLASS=human  HOST=yes JOIN=login   ;;
+  control-plane-server) CLASS=server HOST=no  JOIN=authkey ;;
+  workload-server)      CLASS=server HOST=no  JOIN=authkey ;;
+  runner-server)        CLASS=server HOST=no  JOIN=authkey ;;
+  # The unattended VM host — the shape #31 retired when 'staging' moved to the
+  # tenant family, restored under a name that cannot be confused with its own
+  # guests. host=yes is the whole point: it is what installs the box CLI and
+  # runs box's setup-host further down, so this is a table row, not machinery.
+  staging-server)       CLASS=server HOST=yes JOIN=authkey ;;
+  dev-server)           CLASS=human  HOST=yes JOIN=authkey ;;
+  workstation)          CLASS=human  HOST=yes JOIN=login   ;;
   custom)        ;;
 esac
 
@@ -430,25 +452,26 @@ verify_effective_tag() {
   fi
 
   # tag:server policy is DERIVED, not a trait: it means "the control plane
-  # manages this box", and only control-plane and workload are shapes the
+  # manages this box", and only control-plane-server and workload-server are shapes the
   # control plane manages. Everything else refuses it on the EFFECTIVE tag —
   # strictly stronger than the old request-time check, which only guarded the
-  # tag rig HOPED for. The fleet has been bitten both ways: a runner carrying
+  # tag rig HOPED for. The fleet has been bitten both ways: a runner-server carrying
   # tag:server extends every server grant to repo-controlled code, and a
   # staging host carrying it extends them to a box the control plane does not
   # even know. Refused, never warned; rig can DETECT this but cannot FIX it,
   # so each refusal names its repair.
   if printf '%s\n' "$tags" | grep -qx 'tag:server'; then
     case "$ROLE" in
-      control-plane|workload) ;;
-      runner)
-        die "role runner joined with tag:server (effective tags: $(printf '%s' "$tags" | tr '\n' ' ')). The key you used grants tag:server to repo-controlled code; that must never happen. Re-run bootstrap with a key minted for a CI tag (e.g. tag:ci)." ;;
+      control-plane-server|workload-server) ;;
+      runner-server)
+        die "role runner-server joined with tag:server (effective tags: $(printf '%s' "$tags" | tr '\n' ' ')). The key you used grants tag:server to repo-controlled code; that must never happen. Re-run bootstrap with a key minted for a CI tag (e.g. tag:ci)." ;;
       *)
-        # This arm now also owns the VM-host shape the old staging preset
-        # covered (custom/dev --class server): a host is never managed by the
+        # This arm owns the VM-host shape too — 'staging-server' by name now,
+        # plus custom/dev-server --class server: a host is never managed by the
         # control plane — its guest VMs are — so tag:server is refused there
-        # like everywhere else outside control-plane|workload.
-        die "role $ROLE joined with tag:server (effective tags: $(printf '%s' "$tags" | tr '\n' ' ')). Only control-plane and workload are managed by the control plane; tag:server on this box extends every server grant to it. Re-run bootstrap with a key minted for a non-server tag (e.g. tag:local)." ;;
+        # like everywhere else outside the two control-plane-managed shapes.
+        # Mint the metal's key with tag:local.
+        die "role $ROLE joined with tag:server (effective tags: $(printf '%s' "$tags" | tr '\n' ' ')). Only control-plane-server and workload-server are managed by the control plane; tag:server on this box extends every server grant to it. Re-run bootstrap with a key minted for a non-server tag (e.g. tag:local)." ;;
     esac
   fi
 
@@ -703,9 +726,9 @@ if [ -n "$USERS_FILE" ]; then
 fi
 
 log "done — role ${ROLE}, hostname ${TS_HOSTNAME}"
-if [ "$ROLE" = "control-plane" ]; then
+if [ "$ROLE" = "control-plane-server" ]; then
   log "next: rig coolify install --version <pin>"
-elif [ "$ROLE" = "runner" ]; then
+elif [ "$ROLE" = "runner-server" ]; then
   log "next: rig runner install --repo <owner/repo> --version <pin>"
 fi
 # Every class gets operators: humans always enter as themselves and elevate via

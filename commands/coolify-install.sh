@@ -51,10 +51,17 @@ fi
 # are: the harness proves it non-root, and reading a 0644 file needs no
 # privilege. RIG_ROLE_MARKER overrides the path so tests point it at fixtures
 # (repo precedent: users-apply, users-close-root).
+#
+# This match is on the ROLE NAME, which #76's rename therefore reaches: a box
+# bootstrapped before the rename carries 'role=control-plane' and now takes the
+# warning branch. That is the hard cut behaving as designed — the marker is
+# advisory, the run still proceeds, and the warning names the re-bootstrap that
+# makes the marker true again. Nothing here is load-bearing enough to justify
+# carrying the old name forever.
 MARKER_LINE="$(read_role_marker "${RIG_ROLE_MARKER:-/etc/rig/role}")"
 case "$MARKER_LINE" in
-  ""|"role=control-plane"|"role=control-plane "*) ;;
-  *) warn "this box's role marker says '${MARKER_LINE}' — not a control-plane box. Coolify belongs on role control-plane; if this is the wrong box, stop here and re-check your SSH session. Repurposing it on purpose? Re-run 'rig bootstrap control-plane' first so the marker tells the truth." ;;
+  ""|"role=control-plane-server"|"role=control-plane-server "*) ;;
+  *) warn "this box's role marker says '${MARKER_LINE}' — not a control-plane box. Coolify belongs on role control-plane-server; if this is the wrong box, stop here and re-check your SSH session. Repurposing it on purpose? Re-run 'rig bootstrap control-plane-server' first so the marker tells the truth." ;;
 esac
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"

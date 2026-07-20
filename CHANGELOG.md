@@ -6,6 +6,65 @@ on the way to cutting its first release, and this file starts there.
 
 ## Unreleased
 
+### Changed
+
+- **BREAKING: machine roles carry a `-server` suffix, and the VM host gets its
+  name back** (#76) — rig builds two kinds of thing that sit on opposite sides
+  of a trust boundary: tailnet **machines** it converges, and **guests** a box
+  mints. Both families lived in one flat namespace, and no role name said which
+  one you were asking for. `staging` is where that stopped being cosmetic — the
+  word names the metal that hosts guests *and* the guests on it, only one of
+  them could have the name, and #31 gave it to the guests. The VM-host shape
+  was left with no name at all, spelled `custom --class server --host yes
+  --join authkey`, which is what every refusal in the tree recited at an
+  operator who had confused the two.
+
+  So the suffix names the family: `control-plane-server`, `workload-server`,
+  `runner-server`, `dev-server`, and the restored `staging-server`
+  (`class=server host=yes join=authkey` — the preset #31 retired, back under a
+  name that cannot be mistaken for its own guests). `host=yes` already installs
+  the box CLI and runs box's `setup-host`, so `staging-server` is a table row
+  rather than new machinery, and it stays **out** of the `tag:server`
+  allow-list on purpose: a host is never managed by the control plane, its
+  guests are, so mint its key with `tag:local`.
+
+  **`custom` and `workstation` keep bare names**, and that is the rule rather
+  than an exception to it. `custom` presets nothing and can be any shape — a
+  guest included — so a family claim is one it cannot make. `workstation` is
+  somebody's own device rather than fleet infrastructure: it joins by
+  interactive login, comes up user-owned and untagged, and the tailnet never
+  manages it.
+
+  **Migration — this is a hard cut, with no aliases.** The old names are
+  refused as unknown roles; a box bootstrapped under one is re-bootstrapped
+  rather than migrated, which at this fleet size costs less than four
+  deprecation paths each quietly keeping an old name alive. Two consequences
+  worth knowing before you re-run anything. `TS_HOSTNAME` defaults to the role
+  name, so a box that took the default now comes up as `control-plane-server`
+  rather than `control-plane` — pass `--hostname` to hold a name steady, and
+  check anything pinning one (ACL entries, a `cast` `environments.yaml` server
+  name, host keys). And `rig coolify install` / `rig coolify backup install`
+  match the **role name** in `/etc/rig/role`, so they now look for
+  `role=control-plane-server`; a pre-rename control plane takes their warning
+  branch until it is re-bootstrapped. That check has always been advisory and
+  never a gate, so the run still proceeds and the warning names the repair.
+
+  The rename also reaches every string that *tells an operator to run a role*,
+  not just the code that accepts one — `bootstrap-tenant.sh` emits the staging
+  guest's tailnet-join next step (`sudo rig bootstrap workload-server`), and
+  two of its refusals recite the machine-role list. A stale next-step is worse
+  than a stale flag: it fails when someone copy-pastes it, on a different box,
+  minutes after the run that printed it reported success. `test/cli.sh` sweeps
+  every shipped script for pre-rename role names rather than pinning the known
+  sites, because the next instance of this will be somewhere else.
+
+  `dev-server` is `class=human`, which reads like a contradiction and is not:
+  the suffix names the family, the class names the root-SSH door policy, and
+  operators enter a dev box as themselves so `close-root` shuts its door. The
+  two axes genuinely share the word "server", which is a wart — #77 renames the
+  class trait to what it actually controls, and is kept separate because it
+  reaches markers on live machines that guard root SSH.
+
 ## 0.2.0 — 2026-07-19
 
 ### Added

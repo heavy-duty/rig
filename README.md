@@ -90,7 +90,7 @@ itself is untouched — what bootstrap converged stays converged.
 
 ## Commands
 
-### `rig bootstrap <control-plane|workload|runner|dev|workstation|custom>`
+### `rig bootstrap <control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom>`
 
 Run as root on the fresh box (over SSH). Convergent — safe to re-run; a
 second run changes nothing. (The box TENANT roles — `claude`, `codex`,
@@ -98,10 +98,10 @@ second run changes nothing. (The box TENANT roles — `claude`, `codex`,
 tenants* below.)
 
 ```sh
-rig bootstrap control-plane --hostname my-coolify-box --users ./users
-rig bootstrap workload --hostname my-prod-box --users ./users
-rig bootstrap runner --hostname my-ci-box --users ./users
-rig bootstrap dev --hostname my-dev-box --users ./users
+rig bootstrap control-plane-server --hostname my-coolify-box --users ./users
+rig bootstrap workload-server --hostname my-prod-box --users ./users
+rig bootstrap runner-server --hostname my-ci-box --users ./users
+rig bootstrap dev-server --hostname my-dev-box --users ./users
 rig bootstrap workstation --hostname my-laptop --users ./users
 rig bootstrap custom --hostname my-vm-host --class server --host yes --join authkey --users ./users
 ```
@@ -125,8 +125,8 @@ commands and the second one was easy to forget. Now it takes it, and
 **requires** it:
 
 ```sh
-rig bootstrap dev --hostname my-dev-box --users ./users   # one command, people included
-rig bootstrap dev --hostname my-dev-box --no-users        # deliberately root-only
+rig bootstrap dev-server --hostname my-dev-box --users ./users   # one command, people included
+rig bootstrap dev-server --hostname my-dev-box --no-users        # deliberately root-only
 ```
 
 `--users <path>` runs exactly what `rig users apply --file <path>` runs, as
@@ -187,27 +187,50 @@ presets nothing and requires `--hostname` plus all three traits.
 | `host`  | `yes`, `no`        | whether the box exists to run VMs — the `/dev/kvm` advisory and, on `yes`, installing the `box` CLI + running box's `setup-host` |
 | `join`  | `authkey`, `login` | tagged pre-auth key (fleet identity) vs interactive browser login (user-owned device) |
 
-| role            | class  | host | join    | tailnet tag |
-|-----------------|--------|------|---------|-------------|
-| `control-plane` | server | no   | authkey | `tag:server` |
-| `workload`      | server | no   | authkey | `tag:server` |
-| `runner`        | server | no   | authkey | `tag:ci` — refuses `tag:server` |
-| `dev`           | human  | yes  | authkey | `tag:local` — refuses `tag:server` |
-| `workstation`   | human  | yes  | login   | untagged — any tag refused |
+| role                   | class  | host | join    | tailnet tag |
+|------------------------|--------|------|---------|-------------|
+| `control-plane-server` | server | no   | authkey | `tag:server` |
+| `workload-server`      | server | no   | authkey | `tag:server` |
+| `runner-server`        | server | no   | authkey | `tag:ci` — refuses `tag:server` |
+| `staging-server`       | server | yes  | authkey | `tag:local` — refuses `tag:server` |
+| `dev-server`           | human  | yes  | authkey | `tag:local` — refuses `tag:server` |
+| `workstation`          | human  | yes  | login   | untagged — any tag refused |
 
-> **Where the `staging` preset went.** Before #31, `staging` was the VM-host
-> preset (`class=server host=yes join=authkey`). The name now belongs to the
-> box TENANT family — the *guest*, not the host under it — because that is
-> what "staging" mostly names in practice (the box the control plane will
-> manage), and two meanings on one word was the worse bug. The host shape
-> lost nothing: it is one flag away — `rig bootstrap dev --class server
-> --hostname my-vm-host` — or fully spelled as `custom --class server --host
-> yes --join authkey`. Tag policy is unchanged: mint the host's key with
-> `tag:local`; an effective `tag:server` is refused on every role but
-> `control-plane` and `workload`.
+> **The suffix names the family, not the class** (#76). rig builds two kinds
+> of thing on opposite sides of a trust boundary — tailnet **machines** it
+> converges, and **guests** a box mints — and for a while nothing in a role
+> name said which you were asking for. `staging` made that concrete: the word
+> named both the metal that hosts guests and the guests on it, and only one of
+> them could have it. So `-server` marks a fleet machine and `-box` marks a
+> box tenant, everywhere, and `staging-server` / `staging-box` are simply the
+> two halves spelled out. `staging-server` restores the VM-host preset #31
+> retired, under a name that cannot be confused with its own guests.
+>
+> Two roles take **no** suffix, on purpose. `custom` presets nothing and can
+> be any shape — a guest included — so a family claim is one it cannot make.
+> `workstation` is somebody's own device rather than fleet infrastructure: it
+> joins by interactive login, comes up user-owned and untagged, and the
+> tailnet never manages it.
+>
+> **`dev-server` is `class=human`, and that is not a contradiction** — though
+> it is a wart. The suffix names the *family*; the class names the *root-SSH
+> door policy*, and operators enter a dev box as themselves, so `close-root`
+> shuts its door. Two orthogonal axes that happen to share the word "server".
+> [#77](https://github.com/heavy-duty/rig/issues/77) renames the class trait
+> to what it actually controls, which is the real fix; it touches markers on
+> live machines, so it is deliberately not folded in here.
+>
+> **This was a hard cut — no aliases.** Old role names stop working, and a
+> box bootstrapped under one is re-bootstrapped rather than migrated. Two
+> things follow. The default tailnet hostname is the role name, so a box that
+> took the default now comes up as `control-plane-server`; pass `--hostname`
+> to hold a name steady. And `rig coolify install` / `rig coolify backup
+> install` match `role=control-plane-server` in the marker, so a pre-rename
+> control plane takes their (advisory, non-fatal) warning until it is
+> re-bootstrapped.
 
 The tag column is **derived policy, not a fourth trait**: `tag:server` means
-"the control plane manages this box", and `control-plane` and `workload` are
+"the control plane manages this box", and `control-plane-server` and `workload-server` are
 the only shapes it manages — every other role refuses an effective
 `tag:server` after join, one rule instead of per-role exceptions.
 
@@ -292,9 +315,9 @@ catches a box bootstrapped before this change, or retagged behind rig's back).
 > tag flag, re-tagging needs a fresh key via `up --force-reauth` — so rig detects
 > and refuses, and never claims a convergence it cannot perform.
 
-`control-plane` and `workload` are identical today except the default
+`control-plane-server` and `workload-server` are identical today except the default
 hostname; they exist because the boxes diverge over time, and because each
-follow-up command applies to exactly one role. `runner` is the box a CI agent
+follow-up command applies to exactly one role. `runner-server` is the box a CI agent
 will live on, and it differs behaviorally: it **refuses `tag:server`**. That
 refusal moved onto the *effective* tag and is strictly stronger for it — it is
 no longer "don't advertise `tag:server`" but "the key you actually used must not
@@ -305,13 +328,13 @@ hard, post-join error.
 
 The VM-host shape — the box that *hosts* staging boxes: Incus VMs minted by
 the [`box`](https://github.com/heavy-duty/box) CLI, each converged from inside
-with the tenant roles and (for staging guests) `rig bootstrap workload` —
-rides the traits since #31 (`--class server --host yes --join authkey`; see
+with the tenant roles and (for staging guests) `rig bootstrap workload-server` —
+is the `staging-server` role (`--class server --host yes --join authkey`; see
 the note above). It is `class=server`: an unattended VM appliance — operators
 converge it and leave; nobody lives there. Mint its key with `tag:local`: the
 host and its guests sit on opposite sides of a trust boundary, and the *host*
 is never managed by the control plane — so an effective **`tag:server` is
-refused**, same mechanism as `runner`.
+refused**, same mechanism as `runner-server`.
 
 On a host-class box (`host=yes`), bootstrap finishes the job instead of leaving
 a to-do: after the role marker is written it **installs the `box` CLI globally
@@ -344,7 +367,7 @@ merges box's root install lands in `/root`.)
 > fork); `RIG_SKIP_BOX_INSTALL=1` opts out entirely for a host whose box you
 > manage by hand.
 
-`dev` is the human-class VM-hosting shape — `tag:local`, box CLI installed as
+`dev-server` is the human-class VM-hosting shape — `tag:local`, box CLI installed as
 above, a person living on it (`--class server` turns it into the unattended
 VM-host appliance) — and `workstation` is the machine at the keyboard end of
 all the SSH connections: human-class, `join=login`, entering the tailnet as
@@ -393,7 +416,7 @@ files, so a PATH export alone is invisible to it.
 — no tailnet, no keys (the harness pins this by *absence*: no `tailscale`, no
 prompt, in the shipped script). The one creds-holding step a staging guest
 eventually needs — the tailnet workload join — stays **operator-run**, exactly
-as box#69 designed it: `box shell` → `sudo rig bootstrap workload --hostname
+as box#69 designed it: `box shell` → `sudo rig bootstrap workload-server --hostname
 <name> --users <path>` (or `--no-users` — a guest's door is `box shell`, gated
 by the host's grants) with a single-use tagged pre-auth key. After that join, re-running
 `rig bootstrap staging` still converges docker + hardening and leaves the
@@ -441,17 +464,18 @@ themself and elevates via sudo.
 Per role, the whole identity picture at a glance — issue #25's class
 comparison, translated onto the traits that replaced the class binary:
 
-| role            | class  | host | join    | who lives here                       | root SSH after `rig users apply` |
-|-----------------|--------|------|---------|--------------------------------------|----------------------------------|
-| `control-plane` | server | no   | authkey | nobody — Coolify runs here           | open — the automation door       |
-| `workload`      | server | no   | authkey | nobody — deployed services run here  | open — the automation door       |
-| `runner`        | server | no   | authkey | nobody — CI jobs as `github-runner`  | open — the automation door       |
-| `dev`           | human  | yes  | authkey | operators, minting boxes             | closed by `rig users close-root` |
-| `workstation`   | human  | yes  | login   | its owner                            | closed by `rig users close-root` |
+| role                   | class  | host | join    | who lives here                       | root SSH after `rig users apply` |
+|------------------------|--------|------|---------|--------------------------------------|----------------------------------|
+| `control-plane-server` | server | no   | authkey | nobody — Coolify runs here           | open — the automation door       |
+| `workload-server`      | server | no   | authkey | nobody — deployed services run here  | open — the automation door       |
+| `runner-server`        | server | no   | authkey | nobody — CI jobs as `github-runner`  | open — the automation door       |
+| `staging-server`       | server | yes  | authkey | nobody — it mints and hosts guests   | open — the automation door       |
+| `dev-server`           | human  | yes  | authkey | operators, minting boxes             | closed by `rig users close-root` |
+| `workstation`          | human  | yes  | login   | its owner                            | closed by `rig users close-root` |
 
-(The unattended VM-host appliance — formerly the `staging` preset — is the
-`class=server host=yes join=authkey` shape: nobody lives there, root SSH stays
-open as the automation door. The box TENANT roles sit outside this table on
+(`staging-server` is that unattended VM-host appliance, and the row above is
+the whole of it: nobody lives there, root SSH stays open as the automation
+door. The box TENANT roles sit outside this table on
 purpose: a guest is not a tailnet machine, and its marker carries no `class=`,
 so `rig users close-root` fails closed on it.)
 
@@ -463,7 +487,7 @@ operators land via `rig users apply` on every class and elevate through sudo
 as root. **Machine identities stay machine-shaped**: Coolify's automation
 SSHes in as root (that is what server-class root *is*), CI jobs run as the
 unprivileged `github-runner`, and guest VMs are their own server-class boxes,
-converged from inside by `rig bootstrap workload`.
+converged from inside by `rig bootstrap workload-server`.
 
 **`class` decides root SSH's fate — after `rig users apply`, never before.**
 On `class=human`, root SSH closes entirely (`rig users close-root`, below).
@@ -472,7 +496,7 @@ root there is the **automation** identity the control plane (Coolify) SSHes
 in as. It is a machine door, never a human one.
 
 **Where this diverges from #17's original table:** that table let the
-`runner` role close root ("no Coolify involved"). The class model supersedes
+`runner-server` role close root ("no Coolify involved"). The class model supersedes
 the per-role call: runner is `class=server` — an automation identity, not a
 person's box — and on every server-class machine root SSH is the management
 plane rig itself converges through, so `close-root` refuses there
@@ -640,11 +664,11 @@ throwaway containers on every push.
 
 ### `rig runner install --repo <owner/repo>`
 
-Runner box only, run after `rig bootstrap runner` (the same two-step rhythm
-as `bootstrap control-plane` → `coolify install`):
+Runner box only, run after `rig bootstrap runner-server` (the same two-step rhythm
+as `bootstrap control-plane-server` → `coolify install`):
 
 ```sh
-rig bootstrap runner --hostname my-ci-box --users ./users
+rig bootstrap runner-server --hostname my-ci-box --users ./users
 rig runner install --repo acme/widgets
 ```
 
@@ -1006,7 +1030,7 @@ split: the harness proves the arg/refusal surface, the marker guards (off
 fixture markers), the pure parameter table, and the rendered agent-context
 file — guard note included — plus absence-greps for the creds-free contract;
 the real converge belongs to the rehearsal. The end-to-end rehearsal is a
-throwaway VM/container: pristine Debian → install → `bootstrap workload` with
+throwaway VM/container: pristine Debian → install → `bootstrap workload-server` with
 a real single-use key → assert the sshd drop-in, tailnet join, and a no-op
 second run → destroy, remove the node from the tailnet. The tenant rehearsal
 is the same shape, creds-free: container + seed user → `rig bootstrap claude`

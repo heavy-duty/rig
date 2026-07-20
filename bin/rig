@@ -13,7 +13,8 @@ usage() {
 usage: rig <command> [args]
 
 commands:
-  bootstrap <control-plane|workload|runner|dev|workstation|custom>
+  bootstrap <control-plane-server|workload-server|runner-server|staging-server|
+             dev-server|workstation|custom>
             (--users <path> | --no-users)
             [--hostname <name>] [--class <human|server>] [--host <yes|no>]
             [--join <authkey|login>]
@@ -27,7 +28,9 @@ commands:
       overrides its trait, and custom states all of them. Prompts for a
       single-use TAGGED tailnet pre-auth key (TS_AUTHKEY env overrides the
       prompt); the key's tags are the tailnet tag, verified after join —
-      only control-plane and workload may carry tag:server. join=login
+      only control-plane-server and workload-server may carry tag:server.
+      The '-server' suffix names the FAMILY (a fleet machine, vs the '-box'
+      tenant roles); custom and workstation take none. join=login
       (workstation) needs no key: interactive login, node must come up
       untagged. Run as root.
   bootstrap <claude|codex|grok|staging> [--user <name>]
@@ -36,7 +39,7 @@ commands:
       the system PATH, and the agent-context file (with the box#80 guard:
       never run box setup-host inside a box). staging lands box#69's server
       posture — docker + sshd hardening; its tailnet join stays operator-run
-      via 'rig bootstrap workload'. Creds-free and non-interactive: box
+      via 'rig bootstrap workload-server'. Creds-free and non-interactive: box
       auto-runs these at mint. Run as root, inside the box.
   coolify install --version <pin>
       Pinned Coolify install (AUTOUPDATE=false). Control-plane box only.
