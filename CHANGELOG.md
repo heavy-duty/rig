@@ -51,17 +51,28 @@ on the way to cutting its first release, and this file starts there.
   `SUCCESS` `scope` that superseded it, and judging every entry would have
   stranded every re-run PR in `needs-rebase`.
 
-  Which entry is newest is dated by the newest timestamp a run actually
-  carries, discarding *both* spellings of absent. A run still in flight has no
-  completion, but `gh` does not omit the field — its Go struct marshals the
-  zero time as the string `0001-01-01T00:00:00Z`, and `//` falls through
-  `null` and `false` only. Dating by completion therefore sorted the *live*
-  re-run to the bottom and let `last` pick the very run it superseded: a green
-  context with a replacement mid-flight read `SUCCESS`, inviting a merge the
-  button had already disabled — #136 restored by the fix for it. An entry
-  carrying no usable timestamp sorts last rather than first, so something that
-  cannot be dated is never discarded in favour of a stale success. Every
-  ambiguity here resolves toward "not settled".
+  Which entry is newest is dated by **when the run began** — `startedAt`,
+  falling back only if it never recorded one — discarding *both* spellings of
+  absent. A run still in flight has no completion, but `gh` does not omit the
+  field: its Go struct marshals the zero time as the string
+  `0001-01-01T00:00:00Z`, and `//` falls through `null` and `false` only.
+  Dating by completion therefore sorted the *live* re-run to the bottom and
+  let `last` pick the very run it superseded — a green context with a
+  replacement mid-flight read `SUCCESS`, inviting a merge the button had
+  already disabled, which is #136 restored by the fix for it.
+
+  Taking the *newest* stamp each run carries is not a fix either, and this is
+  the subtle part: it compares a finished predecessor by when it **ended**
+  against a live successor by when it **began**, which is not an ordering on
+  runs at all. A run cancelled by the concurrency group does not stop the
+  instant its replacement starts — the runner has to receive the signal and
+  wind down — so the predecessor completing *after* the successor started is
+  the ordinary case, 13s wide on the box#137 tip that motivated the supersede
+  rule. For that whole drain window the dying predecessor out-dated its own
+  replacement. One consistent quantity, start time, is the only ordering that
+  holds. An entry carrying no usable timestamp at all sorts last rather than
+  first, so something that cannot be dated is never discarded in favour of a
+  stale success. Every ambiguity here resolves toward "not settled".
 
   `UNKNOWN` mergeability is deliberately not treated as unmergeable: GitHub
   reports it for about a minute after every merge while it recomputes, and
@@ -74,10 +85,11 @@ on the way to cutting its first release, and this file starts there.
   is intent, so the reconciler never sets it — it only **clears** it once the
   PR stops being mergeable-by-a-human, which is precisely the staleness that
   made `needs-human` untrustworthy. Both live shapes, the mixed round, the
-  whole check-outcome enum, and the superseded and still-in-flight re-run —
-  in both spellings of an absent completion — are pinned in
-  `test/labels-reconcile.sh`. Ported from heavy-duty/box#137 so the three
-  repos' reconcilers stay byte-identical; fixtures 19 → 48.
+  whole check-outcome enum, and the re-run in every temporal arrangement it
+  occurs in — superseded, still in flight in both spellings of an absent
+  completion, undateable, and still draining past its replacement's start —
+  are pinned in `test/labels-reconcile.sh`. Ported from heavy-duty/box#137 so
+  the three repos' reconcilers stay byte-identical; fixtures 19 → 51.
 
 ### Added
 

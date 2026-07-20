@@ -277,11 +277,41 @@ expect "a replacement in flight for a CANCELLED run is pending, not failed" PEND
   "$(rollup "[$(run_ build CANCELLED 2026-07-20T15:00:00Z),\
               $(inflight_ build 2026-07-20T15:10:00Z)]" | checks_state)"
 # an entry carrying no usable timestamp is treated as newest, not oldest —
-# ambiguity resolves toward "not settled" rather than toward a stale success
+# ambiguity resolves toward "not settled" rather than toward a stale success.
+# Guarded by the sort tiebreak rather than the dating expression: reverting
+# only `at:` leaves this passing, so the two changes are separately pinned.
 expect "an undateable in-flight run is not discarded for a stale success" PENDING \
   "$(rollup "[$(run_ build SUCCESS 2026-07-20T15:00:00Z),\
               $(jq -n '{__typename:"CheckRun",workflowName:"ci",name:"build",conclusion:"",startedAt:null,completedAt:null}')]" \
      | checks_state)"
+# ...and the reverse direction, which stops "in flight sorts last" being
+# widened into "in flight always wins": a run that FINISHED after an earlier
+# in-flight entry is the newer word, and the context is settled.
+expect "a finished re-run supersedes an earlier in-flight run" SUCCESS \
+  "$(rollup "[$(inflight_ build 2026-07-20T15:19:00Z),\
+              $(run_ build SUCCESS 2026-07-20T15:19:45Z)]" | checks_state)"
+
+# -- the DRAIN WINDOW. A run cancelled by the concurrency group does not stop
+#    the instant its replacement starts: the runner has to receive the signal
+#    and wind down, so the predecessor's completion lands AFTER the successor's
+#    start. On box#137's own tip that window was 13s (superseding run started
+#    15:19:38, the run it cancelled finished 15:19:51). `run_()` cannot express
+#    it either — it carries no startedAt — so every fixture above spaces the
+#    predecessor's completion safely before the successor's start, and the whole
+#    window is invisible to them. This is why the run is dated by `first` of the
+#    preference-ordered stamps and not by `max` of them: max compares "when it
+#    ended" against "when it began", which is not an ordering on runs, and the
+#    dying predecessor out-dated its live replacement for the entire window.
+drained_() { jq -n --arg n "$1" --arg c "$2" --arg s "$3" --arg e "$4" \
+  '{__typename:"CheckRun", workflowName:"ci", name:$n, conclusion:$c,
+    startedAt:$s, completedAt:$e}'; }
+
+expect "a predecessor still draining does not out-date its live replacement" PENDING \
+  "$(rollup "[$(drained_ build CANCELLED 2026-07-20T15:19:29Z 2026-07-20T15:19:51Z),\
+              $(inflight_ build 2026-07-20T15:19:38Z)]" | checks_state)"
+expect "...and the same when the draining predecessor is green (the #136 shape)" PENDING \
+  "$(rollup "[$(drained_ build SUCCESS 2026-07-20T15:19:29Z 2026-07-20T15:19:51Z),\
+              $(inflight_ build 2026-07-20T15:19:38Z)]" | checks_state)"
 
 # -- the classifier feeds the state machine: a cancelled required check must
 #    take the PR off the human's plate, which is the whole point of #136.

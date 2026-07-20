@@ -88,18 +88,28 @@ checks_state() { # rollup JSON on stdin → SUCCESS | FAILURE | PENDING | NONE
     # pick the very run it superseded — reporting the old SUCCESS while a
     # replacement was still running, which is #136 again.
     #
-    # So: take the newest timestamp a run actually carries, discarding both
-    # spellings of absent (null, and the zero sentinel). An entry that carries
-    # no usable timestamp at all sorts LAST rather than first — something we
-    # cannot date is most likely the thing just created, and treating it as
-    # newest keeps an undateable in-flight run from being discarded in favour
-    # of a stale success. Every ambiguity here resolves toward "not settled".
+    # So: date a run by when it BEGAN, discarding both spellings of absent
+    # (null, and the zero sentinel), and fall back only if it never recorded a
+    # beginning. Deliberately `first` over the preference-ordered list and not
+    # `max` of it: max mixes "when it started" with "when it ended", which are
+    # different quantities, so it is not an ordering on runs at all. A run
+    # cancelled by the concurrency group does not stop the instant its
+    # replacement starts — the runner has to receive the signal and wind down —
+    # so predecessor.completedAt > successor.startedAt is the ordinary case
+    # (13s on the box#137 tip), and under max the dying predecessor
+    # out-dated its live replacement for the whole drain window.
+    #
+    # An entry that carries no usable timestamp at all sorts LAST rather than
+    # first — something we cannot date is most likely the thing just created,
+    # and treating it as newest keeps an undateable in-flight run from being
+    # discarded in favour of a stale success. Every ambiguity here resolves
+    # toward "not settled".
     | [ (.statusCheckRollup // [])[]
         | { ctx: [.workflowName // "", .name // .context // ""],
             at:  ([.startedAt, .createdAt, .completedAt]
                   | map(select(type == "string" and . != ""
                                and (startswith("0001-01-01") | not)))
-                  | max // ""),
+                  | first // ""),
             outcome: ((.conclusion // .state // "") | ascii_upcase) } ]
     | group_by(.ctx)
     | map(sort_by([(.at == ""), .at]) | last | .outcome) as $latest
