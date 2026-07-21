@@ -100,16 +100,28 @@ record="$drills/$version.md"
 # tab shipped an evidence-free release. `grep -q '[^[:space:]]'` is the whole
 # check now, with no extractor in front of it to get wrong.
 #
-# Written as if/then, NOT as `[ -f "$record" ] && recorded=yes`. Under `set -e`
-# a bare `a && b` statement whose last command fails takes the whole script
-# down with its exit status — so a miss would exit 1 here, before the failure
-# message below ever printed, and the author would see nothing.
-recorded=no
-if [ -f "$record" ] && grep -q '[^[:space:]]' "$record"; then
-  recorded=yes
-fi
-
-if [ "$recorded" != yes ]; then
+# The negated form below, matching box's and cast's twins exactly, so there is
+# no divergence between the three to explain.
+#
+# It also avoids a real `set -e` hazard, which is worth naming precisely
+# because an earlier draft of this comment named it BACKWARDS. A bare
+# `[ -f "$record" ] && grep -q ... "$record"` mid-script does NOT abort when
+# the file is missing: the left-hand side of `&&` is exempt from errexit, so a
+# miss simply continues. What DOES abort is the other case — the file exists
+# and `grep` finds nothing, i.e. exactly the whitespace-only record this guard
+# is here to refuse. The script would die on its most interesting input,
+# before printing the message that explains it.
+#
+# Verified rather than reasoned about:
+#   bash -ec '[ -f /nonexistent ] && r=yes; echo reached'   -> prints, exit 0
+#   bash -ec 'f=$(mktemp); echo "  " >"$f"
+#             [ -f "$f" ] && grep -q "[^[:space:]]" "$f"
+#             echo reached'                                 -> silent, exit 1
+#
+# Caught by all three reviewers on #104. The lesson is the same one #149 and
+# cast#138 taught: this family's comments get read as contracts, so a comment
+# that misstates the semantics is a defect even when the code is correct.
+if [ ! -f "$record" ] || ! grep -q '[^[:space:]]' "$record"; then
   {
     echo "drill-recorded: VERSION is $version, and there is no drill record at $record."
     echo
