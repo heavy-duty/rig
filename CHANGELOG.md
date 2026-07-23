@@ -53,24 +53,6 @@ on the way to cutting its first release, and this file starts there.
 - Changelog entries are one line each, and the whole file now follows the rule
   (#100)
 
-## 0.2.0 — 2026-07-19
-
-### Added
-
-- `users apply` grants the box *tier*, not just its socket (#49)
-
-### Changed
-
-- BREAKING: `rig bootstrap` takes the users file, and requires it (#51)
-
-### Fixed
-
-- A release no longer disarms the changelog under the PRs still in flight (#67)
-- A `host=no` box with an `incus` group no longer hands out the bare socket
-  (#58)
-- Dropping the box role revokes through `box`, not behind its back (#50)
-- `rig bootstrap` refuses a users file that names no users (#57)
-
 ## 0.1.0 — 2026-07-19
 
 ### Fixed
