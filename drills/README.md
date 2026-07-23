@@ -24,7 +24,8 @@ The gate reads a file in this repo, and nothing else.
 
 ## What the gate requires
 
-`.github/scripts/drill-recorded.sh` runs on every PR. On a `-dev` tree it
+The `drill-recorded` guard (heavy-duty/ceremony's action, pinned in
+`ci.yml`) runs on every PR. On a `-dev` tree it
 asserts nothing — a development tree has no release to evidence. On a bare
 `VERSION` — a release ceremony tree — it requires `drills/<version>.md` to
 exist and to hold at least one non-whitespace character. An empty file, or one
