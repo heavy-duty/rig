@@ -14,6 +14,7 @@ on the way to cutting its first release, and this file starts there.
 
 ### Changed
 
+- `bootstrap --host yes` installs a pinned box release instead of `main` (#103)
 - Release and labels machinery is consumed from heavy-duty/ceremony@0.1.0 by reference — the workflows shrink to caller stubs, the guard scripts and their tests move upstream (#112, ceremony#13)
 
 ## 0.3.0 — 2026-07-21

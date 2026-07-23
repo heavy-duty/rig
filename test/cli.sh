@@ -167,8 +167,16 @@ check "bootstrap: box install is guarded on host=yes" 0 "" \
 # setup-host, so box builds Incus rather than only dropping the CLI on PATH).
 check "bootstrap: box install runs box's installer non-interactively" 0 "" \
   grep -q "BOX_YES=1 bash" "$ROOT/commands/bootstrap.sh"
-# Pin points: BOX_REPO / BOX_REF override the source, default heavy-duty/box@main.
-check "bootstrap: box source is pinnable, defaults to heavy-duty/box@main" 0 "" \
+# The default is a released semver pin carried in rig's tree, never a moving
+# branch. BOX_REF remains an override so explicit main and release-branch refs
+# still work for development and pre-release drills.
+box_release="$(sed -n 's/^[[:space:]]*BOX_RELEASE=//p' "$ROOT/commands/bootstrap.sh")"
+check "bootstrap: box default is a released semver pin, not a moving ref" 0 "" \
+  grep -qxE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$box_release"
+# shellcheck disable=SC2016
+check "bootstrap: BOX_REF overrides the released default" 0 "" \
+  grep -qF 'BOX_REF="${BOX_REF:-$BOX_RELEASE}"' "$ROOT/commands/bootstrap.sh"
+check "bootstrap: box repository remains pinnable" 0 "" \
   grep -qF 'BOX_REPO:-heavy-duty/box' "$ROOT/commands/bootstrap.sh"
 # Opt-out for rehearsals / offline / hand-managed hosts.
 check "bootstrap: box install honors RIG_SKIP_BOX_INSTALL opt-out" 0 "" \

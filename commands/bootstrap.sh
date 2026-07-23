@@ -671,7 +671,9 @@ fi
 # hardening + the tailnet, and box is the host EXTRA, so a failed box install
 # must never abort a bootstrap that otherwise fully succeeded.
 #
-# PIN POINTS: BOX_REPO / BOX_REF override the source (default heavy-duty/box@main).
+# PIN POINTS: BOX_REPO / BOX_REF override the source (default
+# heavy-duty/box@0.9.0). BOX_RELEASE is bumped deliberately when rig releases,
+# after the pinned combination has passed the release drill.
 # BOX_YES=1 makes box's installer non-interactive AND keeps setup-host (so the
 # Incus stack is actually built, not just the CLI dropped on PATH).
 #
@@ -684,8 +686,9 @@ fi
 # on box PR #71. Until that merges, box's root install lands in /root and non-root
 # users cannot reach it, so this step is only fully correct once box#71 is merged.
 if [ "$HOST" = "yes" ]; then
+  BOX_RELEASE=0.9.0
   BOX_REPO="${BOX_REPO:-heavy-duty/box}"
-  BOX_REF="${BOX_REF:-main}"
+  BOX_REF="${BOX_REF:-$BOX_RELEASE}"
   BOX_INSTALL_URL="https://raw.githubusercontent.com/${BOX_REPO}/${BOX_REF}/install.sh"
   BOX_MANUAL="curl -fsSL ${BOX_INSTALL_URL} | BOX_YES=1 bash"
   if [ "${RIG_SKIP_BOX_INSTALL:-}" = "1" ]; then
