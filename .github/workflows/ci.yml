@@ -9,16 +9,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # fetch-depth: 0, for the changelog-monotonic step below and only
-          # for it. That check is about a DIFF — which release headings the
-          # merge base had — so it needs the base branch's history present,
-          # and the default depth-1 checkout has none of it. An explicit
-          # `git fetch origin <base>` would be narrower, but it has to be
-          # right on both event types and on fork PRs, and getting it subtly
-          # wrong degrades to a SKIP (a guard that silently stops guarding —
-          # the exact failure this repo keeps refusing). Full history on a
-          # pure-bash tree costs a second; the STRICT flag below turns any
-          # remaining skip red rather than green.
+          # changelog-monotonic compares HEAD against the merge base; a
+          # checkout that cannot resolve it is a hard failure in CI, not
+          # a skip (a guard that can quietly stop guarding is the failure
+          # shape these checks exist to refuse).
           fetch-depth: 0
       - name: shellcheck
         # -x follows the `source=SCRIPTDIR/...` directives into commands/lib/.
@@ -43,61 +37,27 @@ jobs:
           shellcheck -x "${files[@]}"
       - name: cli tests
         run: bash test/cli.sh
-      # test/labels-reconcile.sh existed here since #87 but ran nowhere: the
-      # label state machine gates every PR on this repo and its fixtures were
-      # green only when someone remembered to run them by hand. Same step, same
-      # place as heavy-duty/box.
-      - name: labels state-machine tests
-        run: bash test/labels-reconcile.sh
-      - name: release-flow tests
+      - name: release tests — rig's own surfaces
         run: bash test/release.sh
-      # No SHIPPED release heading was deleted or DUPLICATED (#98). Its own step
-      # rather than a line inside test/release.sh: that suite drives the arming
-      # rule against constructed VERSION + CHANGELOG.md trees that are not git
-      # repos, and this assert needs a git history — folding it in would make
-      # those cases skip or lie. It is also a DIFFERENT invariant: arming is a
-      # fact about this tree, monotonicity is a fact about this tree versus its
-      # merge base. STRICT=1 so a checkout that cannot reach the base ref fails
-      # here instead of skipping quietly forever.
+      # The release guards, doctrine in heavy-duty/ceremony's README (#13's
+      # conversion). Each one's war story — why it exists, what it refuses —
+      # lives with its implementation upstream; the four pins below and the
+      # two workflow callers must always name the same ceremony tag.
       #
-      # NOT pull-request-only, and that is the #98 fix at the workflow level.
-      # The two halves have different vacuity: DELETION is vacuous on a push to
-      # main (the merge base IS HEAD), but DUPLICATION is vacuous on no tree at
-      # all, so gating the whole script on `pull_request` left a duplicate that
-      # reached main by any other route unasserted forever.
-      #
-      # The `|| github.ref_name` fallback is load-bearing, not defensive. On a
-      # push event `github.base_ref` is EMPTY, so the argument would collapse to
-      # a bare `origin/`, which does not resolve — and STRICT=1 correctly
-      # promotes that to a hard failure, turning every push to main red. With
-      # the fallback it resolves to the pushed branch, whose merge base with
-      # HEAD is HEAD or its parent: containment passes vacuously, exactly as the
-      # old `if` intended, while uniqueness now runs on every push.
-      - name: no shipped changelog heading was deleted or duplicated
-        env:
-          CHANGELOG_MONOTONIC_STRICT: '1'
-        run: bash .github/scripts/changelog-monotonic.sh "origin/${{ github.base_ref || github.ref_name }}"
-      # The release this tree would ship has a recorded real-hardware drill
-      # (drills/<version>.md). CONTRIBUTING ("Releasing") has always required one and
-      # nothing enforced it, so no release in this family has ever carried one
-      # — the drill was the single ceremony step checked by a reviewer
-      # remembering rather than by a script.
-      #
-      # Deliberately NOT trigger-scoped, and for the opposite reason to the
-      # step above. That one needs a base ref, so its argument has to be right
-      # on both event types; this one reads two files in the checkout and is
-      # VACUOUS BY CONSTRUCTION on a `-dev` VERSION, which every ordinary PR
-      # and every push to main carries. It has something to say on exactly one
-      # tree — the `release: X.Y.Z` ceremony PR — so an `if:` could only add a
-      # way for that one tree to slip past.
-      #
-      # PER-REPO on purpose: rig reads rig's own record, never box's repo. A
-      # cross-repo lookup fails on a token, a network blip or a fork checkout,
-      # and every one of those lands on "could not read" — which degrades to
-      # green on precisely the tree that ships (the UNREADABLE-vs-NONE shape
-      # #90 fixed).
-      - name: a release version has a recorded drill
-        run: bash .github/scripts/drill-recorded.sh
+      # changelog-armed: the version-keyed arming rule (rig#66; the
+      # unconditional form rig#44 reverted — this is its correct return).
+      - uses: heavy-duty/ceremony/actions/changelog-armed@0.1.0
+      # changelog-monotonic: no shipped heading deleted or duplicated
+      # (#98, box#122). Strict by default: an unresolvable base ref is red,
+      # never a quiet skip — hence the fetch-depth: 0 above.
+      - uses: heavy-duty/ceremony/actions/changelog-monotonic@0.1.0
+      # drill-recorded: a release version carries drills/<version>.md
+      # (rig's drill meaning: drills/README.md). Vacuous on -dev trees.
+      - uses: heavy-duty/ceremony/actions/drill-recorded@0.1.0
+      # docs-sync: the .ceremony/ doctrine mirror is byte-identical to the
+      # pin read from release.yml (ceremony#19) — a hand edit or a
+      # half-done pin bump goes red here.
+      - uses: heavy-duty/ceremony/actions/docs-sync@0.1.0
 
   # Kept SEPARATE from `check` on purpose: this job pulls a Postgres image and
   # stands up throwaway containers, and a slow image pull must never delay the
