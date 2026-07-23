@@ -9,6 +9,12 @@ on the way to cutting its first release, and this file starts there.
 ### Added
 
 - `kimi-box` joins the box tenant roles — the Kimi CLI agent guest (#109)
+- The `changelog-armed` guard returns, version-keyed (#112, ceremony#13)
+- The `.ceremony/` doctrine mirror, verified by `docs-sync` on every PR (#112, ceremony#19)
+
+### Changed
+
+- Release and labels machinery is consumed from heavy-duty/ceremony@0.1.0 by reference — the workflows shrink to caller stubs, the guard scripts and their tests move upstream (#112, ceremony#13)
 
 ## 0.3.0 — 2026-07-21
 
