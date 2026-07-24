@@ -9,6 +9,7 @@ on the way to cutting its first release, and this file starts there.
 ### Added
 
 - `drill/drill.sh` — the drill has an instrument: pinned-ref assertion, a mechanical idempotence diff, and a `drills/<version>.md` record emitter (#105)
+- GitHub entry templates route humans to Discussions and prefill triage work orders and pull requests (#123)
 - `kimi-box` joins the box tenant roles — the Kimi CLI agent guest (#109)
 - The `changelog-armed` guard returns, version-keyed (#112, ceremony#13)
 - The `.ceremony/` doctrine mirror, verified by `docs-sync` on every PR (#112, ceremony#19)
