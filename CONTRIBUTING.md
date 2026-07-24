@@ -24,7 +24,8 @@ genuinely rig's.
    `bash test/release.sh` locally mirror what CI runs; the db dump/restore
    round-trip (`test/db-integration.sh`) executes in CI where Docker is
    present. The release guards (`changelog-armed`, `changelog-monotonic`,
-   `drill-recorded`, `docs-sync`) run as ceremony's pinned actions.
+   `changelog-assembled`, `drill-recorded`, `runner-isolated`, `docs-sync`)
+   run as ceremony's pinned actions.
 4. **Feature PRs land their changelog entry as part of the PR**: write
    `changelog.d/<issue>.md` — the release PR assembles those fragments into
    the release notes verbatim.
