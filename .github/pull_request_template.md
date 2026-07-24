@@ -12,8 +12,8 @@ to the issue for triage to amend, not silently unshipped. -->
 
 ## Changelog
 
-- [ ] One line under `## Unreleased` — inserted **above** the heading below
-      it, never over it — or no behavior change, stated here.
+- [ ] One `changelog.d/<issue>.md` fragment containing the exact publishable
+      prose — or no behavior change, stated here.
 
 ## Round log
 

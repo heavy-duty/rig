@@ -25,14 +25,16 @@ genuinely rig's.
    round-trip (`test/db-integration.sh`) executes in CI where Docker is
    present. The release guards (`changelog-armed`, `changelog-monotonic`,
    `drill-recorded`, `docs-sync`) run as ceremony's pinned actions.
-4. **Feature PRs land their changelog entry as part of the PR**: add it
-   under `CHANGELOG.md`'s `## Unreleased` heading — that section becomes
-   the release notes verbatim when a release is cut.
+4. **Feature PRs land their changelog entry as part of the PR**: write
+   `changelog.d/<issue>.md` — the release PR assembles those fragments into
+   the release notes verbatim.
 
 ## Changelog entries
 
-Every PR that changes behaviour adds one line to `## Unreleased`. One line is
-the whole rule — if it wraps more than twice in your editor, cut it down.
+Every PR that changes behaviour writes one `changelog.d/<issue>.md` fragment.
+The fragment keeps the relevant `### Added` / `### Changed` / `### Fixed`
+heading above its entry. One line is the whole rule — if it wraps more than
+twice in your editor, cut it down.
 
 - **Say what changed, and stop.** Why it was wrong, how it was found, what it
   cost, what it implies — that belongs in the PR body and the commit message,
