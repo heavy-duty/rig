@@ -6,12 +6,21 @@ log() { printf 'rig-bootstrap: %s\n' "$*"; }
 die() { printf 'rig-bootstrap: ERROR: %s\n' "$*" >&2; exit 1; }
 
 MARKER="${RIG_ROLE_MARKER:-/etc/rig/role}"
-RUNNER_DIR="${RIG_RUNNER_DIR:-/home/github-runner/actions-runner}"
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
 [ -e "$MARKER" ] || die "no /etc/rig/role marker — refusing to touch the tailnet"
 
-if [ -e "$RUNNER_DIR/.runner" ]; then
+runner_installed=0
+if [ -n "${RIG_RUNNER_DIR:-}" ]; then
+  [ -e "$RIG_RUNNER_DIR/.runner" ] && runner_installed=1
+else
+  for runner_config in /home/*/actions-runner/.runner /root/actions-runner/.runner; do
+    [ -e "$runner_config" ] && runner_installed=1
+  done
+  compgen -G '/etc/systemd/system/actions.runner.*.service' >/dev/null \
+    && runner_installed=1
+fi
+if [ "$runner_installed" -eq 1 ]; then
   die "a GitHub runner is installed — run 'rig runner remove' first so undo does not leave a ghost runner in the repository"
 fi
 
