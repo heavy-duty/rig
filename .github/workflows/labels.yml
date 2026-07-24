@@ -15,4 +15,4 @@ permissions:
   pull-requests: write
 jobs:
   labels:
-    uses: heavy-duty/ceremony/.github/workflows/labels.yml@0.1.0
+    uses: heavy-duty/ceremony/.github/workflows/labels.yml@0.2.0

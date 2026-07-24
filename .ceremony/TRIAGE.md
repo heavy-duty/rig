@@ -32,10 +32,33 @@ is the failure this whole flow exists to prevent.
    answers would let you write the issue — then stop and wait. Do not mint an
    issue that carries the ambiguity forward; that just moves your job onto
    the builder.
-3. **Escalate.** The blocker is a *decision* only a human owns — scope,
-   money, product direction, breaking a public contract. Say precisely what
-   the decision is, list the options with your recommendation, and name the
-   decider. The discussion is where humans decide; wait there.
+3. **Escalate.** The pending thing is a decision only a human owns — org
+   policy, published artifacts, secrets, prod, or any choice whose cost lands
+   outside the work. A panel deadlock is one instance, not the definition
+   ([#50 D11](https://github.com/heavy-duty/ceremony/issues/50)). Say
+   precisely what the decision is, name the decider, and use
+   [BUILDER.md's canonical ruling template](BUILDER.md#the-ruling-ask),
+   including its options, recommendation, blocked/continues statement, and
+   reversible-only default rules ([#50 D12–D13](https://github.com/heavy-duty/ceremony/issues/50)).
+   The discussion is where humans decide; wait there. When the decision
+   blocks something already on the board — an existing issue, or minted work
+   a discussion's ruling gates — set `needs-ruling` on it too, so the board
+   shows where the human's turn is; the issue keeps its queue label.
+   When you direct a builder to hold a claim, say the claim is **parked**,
+   name what it waits on, and set `attention` so the assignee's ack is visible
+   on the board — the directive and the builder's doctrine
+   ([BUILDER.md](BUILDER.md#claiming)) must use one word.
+   Past 24 hours from the current episode's `labeled` event, if the ruling
+   still stands and doubt remains, it is triage's duty to pick the option the
+   builder proceeds on, record that pick as a decision, and stay accountable
+   for it; the operator may overturn it at merge
+   ([#50 D13–D14](https://github.com/heavy-duty/ceremony/issues/50)). You set
+   the flag, so you also close it out ([LABELS.md](LABELS.md)): judge when
+   agreement is reached, record the ruling as a decision in one comment,
+   remove the label, and return the issue to its flow in that same comment;
+   when that ruling or any directive or answered builder question delivers
+   the assignee's next move in prose, set `attention` in the same comment.
+   This is not a substitute for minting work or for `needs-ruling`.
 4. **Decline.** Real idea, wrong repo or wrong time. Say why plainly, link
    where it belongs if anywhere, close. A refusal with reasons is a good
    outcome; a zombie discussion is not.
@@ -58,7 +81,9 @@ Every issue you mint carries, in this order:
   the builder's definition of done and the reviewer's review spec, verbatim.
 - **Test plan**: what proves it, including the cases that must fail.
 - **Dependencies**: `Blocked by #N` / `Blocks #N`, and `Part of #E` when an
-  epic organizes it.
+  epic organizes it. Name a cross-repo dependency the same way with its
+  repository qualified (`Blocked by repo#N` or `owner/repo#N`); the sweep
+  cannot resolve it, so triage verifies it and flips the issue by hand.
 - **Labels**: type (`bug`/`enhancement`/`documentation`), `scope:*`, and
   exactly one of `ready` / `blocked` (see [LABELS.md](LABELS.md)).
 
@@ -75,13 +100,16 @@ dependency-ordered task list of child issues. Children reference the epic;
 the epic's checklist is the progress view. Builders never pick the epic
 itself. Keep the checklist current — a stale epic misleads every scan.
 
-## Backlog hygiene (yours until #18 automates it)
+## Backlog hygiene
 
 - **Dedup before minting** — search issues *and* closed issues; extend or
   reopen before duplicating.
-- **Flip `blocked` → `ready`** when the named dependency lands.
-- **Reclaim abandoned claims**: `claimed` + no open PR + no activity →
-  comment, unassign, restore `ready`.
+- The issue-flow sweep flips `blocked` → `ready` when every named dependency
+  lands, and flags a blocked issue whose dependency declaration is unreadable.
+- The sweep reclaims abandoned claims after 48 hours: `claimed` + no open PR
+  + no activity → comment, unassign, restore `ready`.
+- Automation never guesses intent. Resolve the conflict comments it leaves on
+  malformed queue states, and close or extend completed epics when nudged.
 - **Close obsolete issues** with the reason and a link to what obsoleted
   them. Every label on every open issue stays true; the board is only worth
   scanning if it does not lie.

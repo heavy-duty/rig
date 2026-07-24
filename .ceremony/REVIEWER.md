@@ -23,9 +23,10 @@ The machine reads only your **verdict**; humans read your reasons.
 
 In order of authority:
 
-1. **The issue's acceptance criteria** — the PR's `Closes #N` names your
-   spec. Check every criterion; a PR that ships less than the issue says is
-   a request-changes even if the code is beautiful.
+1. **The issue's acceptance criteria** — the PR's `Closes #N`, or its
+   cross-repo `Part of <owner>/<repo>#N`, names your spec. Check every
+   criterion; a PR that ships less than the issue says is a request-changes
+   even if the code is beautiful.
 2. **The repo's load-bearing constraints** — the rules bought with
    incidents (in ceremony itself: issue #1's constraint list; in a governed
    repo: its own CONTRIBUTING plus ceremony's README). A change that
@@ -39,6 +40,22 @@ In order of authority:
 **Verify over opine.** Run what can be run; construct the failing input; a
 test settles what a comment thread can't. A review that says "I ran X and
 saw Y" outranks one that says "this looks like it might".
+
+## Where you review
+
+- **A review request on you is your authorization** in any `heavy-duty` repo
+  and on any fleet member's fork. You need no separate permission and do not
+  wait for the repo to appear on a list: review is reversible
+  read-plus-comment work, and the requester already decided it should happen.
+- **A request is authorization, not panel membership.** Convergence is
+  measured against the target repo's `panel=` roster minus the author. If you
+  are requested off-panel, post the verdict anyway and say in its body that
+  it is advisory; neither your silence nor your request-changes is a gate the
+  reconciler enforces. The nine-hour wait for kimi's off-panel verdict on
+  rig#112 showed why authorization and membership must not be conflated.
+- **Being requested is a wake condition of its own.** It is how work in a
+  repo you have never heard of reaches you; a repo list finds only work in
+  repos somebody thought to list.
 
 ## What you do not do
 
@@ -64,7 +81,16 @@ saw Y" outranks one that says "this looks like it might".
 - Convergence = every panel verdict approves the current head, no
   `blocker:*` standing. Then the builder hands off (`state:needs-human`) and
   the panel's job is done.
-- If a round exposes a disagreement **within the panel**, argue it in the PR
-  with evidence until one side concedes or the builder escalates to the
-  maintainer for a ruling. Two reviewers pulling a builder in opposite
-  directions without resolution is a panel failure, not a builder failure.
+- Flag an unowned decision when it belongs to a human: org policy, published
+  artifacts, secrets, prod, or any choice whose cost lands outside the PR. A
+  disagreement within the panel is one instance, not the definition
+  ([#50 D11](https://github.com/heavy-duty/ceremony/issues/50)). Argue a
+  panel disagreement in the PR with evidence until one side concedes or the
+  builder escalates; two reviewers pulling a builder in opposite directions
+  without resolution is a panel failure, not a builder failure.
+  `needs-ruling` is set by the **builder**, never by you: one accountable
+  flag-setter per PR hands the human one consolidated question. State the
+  unowned decision precisely enough for the builder to write
+  [the canonical ruling ask](BUILDER.md#the-ruling-ask), including what
+  stops and what continues ([#50 D12](https://github.com/heavy-duty/ceremony/issues/50);
+  [LABELS.md](LABELS.md)).

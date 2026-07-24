@@ -1,4 +1,4 @@
-<!-- Copied from heavy-duty/ceremony@0.1.0 .github/pull_request_template.md (heavy-duty/ceremony#24). Hand-maintained: no guard checks this against ceremony.
+<!-- Copied from heavy-duty/ceremony@0.2.0 .github/pull_request_template.md (heavy-duty/ceremony#24). Hand-maintained: no guard checks this against ceremony.
 Short on purpose: a template longer than a small PR gets deleted by
 reflex, not read (heavy-duty/ceremony#24). One issue, one PR — draft while building. -->
 
