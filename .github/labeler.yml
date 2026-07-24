@@ -21,3 +21,24 @@
 "scope:installer":
   - changed-files:
       - any-glob-to-any-file: ["install.sh"]
+"scope:platform":
+  - changed-files:
+      - any-glob-to-any-file: ["commands/platform.sh"]
+"scope:drill":
+  - changed-files:
+      - any-glob-to-any-file: ["drill/**", "drills/**"]
+"scope:docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "README.md"
+          - "CONTRIBUTING.md"
+          - "docs/**"
+          - ".github/ISSUE_TEMPLATE/**"
+          - ".github/DISCUSSION_TEMPLATE/**"
+          - ".github/pull_request_template.md"
+"scope:labels":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/labels.conf"
+          - ".github/labeler.yml"
+          - ".github/workflows/labels.yml"
