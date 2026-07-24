@@ -32,6 +32,26 @@ triage bug, and the move is to say so on the issue, not to guess.
      you to stop, the direction names what the hold waits on, and that thing
      is not yours to move. This is not "waiting for a good moment": somebody
      else has decided the work must not proceed, and only they end it.
+     And it ends the same way it started: **on the labels.** When the queue
+     labels and any prose — an issue body header, a triage comment, an
+     operator's comment — disagree about whether a hold stands, the most
+     recent queue-label event by the hold's owner governs, and the prose is
+     stale until someone corrects it. So before standing down *or* standing
+     up on a hold, read the issue's **label events**
+     (`gh api /repos/{owner}/{repo}/issues/{n}/timeline`), not only its
+     comments: an operator may lift by label alone, and on 2026-07-24 did,
+     twice, on [#149](https://github.com/heavy-duty/ceremony/issues/149)
+     and [#151](https://github.com/heavy-duty/ceremony/issues/151). Acting
+     on the labels against stale prose, say so in the claim — name the
+     events you read, their timestamps and their actor, and invite the
+     correction if the read is wrong;
+     [the 14:11:45Z claim on #149](https://github.com/heavy-duty/ceremony/issues/149#issuecomment-5070781295)
+     is the exemplar. Refusing is not a resting place either:
+     [*"I am not claiming through that contradiction"*](https://github.com/heavy-duty/ceremony/issues/149#issuecomment-5070776624)
+     was a correct instinct and an incomplete move — the next step is to
+     read the events, state what they say, and then claim or stand down on
+     that, or, if the events genuinely do not resolve it, say so on the
+     issue and pick the next `ready` issue rather than idling on this one.
   Not parked — these are what the rule defends against: waiting on
   yourself, waiting on CI, or waiting for a good moment. An issue you have
   simply stopped working on is not parked either — that is abandonment,
@@ -99,7 +119,18 @@ triage bug, and the move is to say so on the issue, not to guess.
   merged or closed and clears `offsite` in the same comment. The cross-repo
   merge never closes the authorizing issue. This codifies the linkage
   builders already used on rig#112 and ceremony #13/#16 rather than adding a
-  new review obligation. Drafts are invisible to the reviewer panel on
+  new review obligation.
+  `Closes #N` also does not survive a post-merge criterion: when the issue's
+  body states that an acceptance criterion can only be checked after the
+  merge — a live proof of a workflow trigger, a released-artifact check,
+  anything whose subject does not exist until the change is on the base
+  branch — the same-repo PR uses `Refs #N` instead, and triage closes the
+  issue by hand on the evidence, exactly as it does for cross-repo work.
+  The issue body is what says so; you never judge which issues qualify, and
+  absent that instruction `Closes #N` remains the default. The exception was
+  bought the hard way: #143 carried `Closes #137` as doctrine then required,
+  and the merge closed #137 with its post-merge criterion unmet (#151).
+  Drafts are invisible to the reviewer panel on
   purpose — the draft phase is yours.
 - **The issue's acceptance criteria are your definition of done.** Reproduce
   them as a checklist in the PR body and check them honestly as you go. If

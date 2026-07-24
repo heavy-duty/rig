@@ -170,8 +170,10 @@ re-arms mentions, but only the writer can declare that a move is owed (#83).
 ## Scope — which surface? (PRs and issues, any number)
 
 All scopes share one calm color, `#C5DEF5` — scopes locate, states alert. The
-set is per-repo: PRs get theirs from changed paths via actions/labeler, issues
-get theirs from triage. This file never enumerates a set — it is mirrored
+set is per-repo: PRs get theirs from changed paths via the labels workflow's
+scope job — an additive write only, so a label applied by hand or by an agent
+while the machine runs always survives it (#130) — and issues get theirs from
+triage. This file never enumerates a set — it is mirrored
 byte-identically into every governed repo, and any list it carried would be
 true in one repo and false in the rest (#104). The set for the repo you are
 standing in lives in the two places that are true wherever you read them: its

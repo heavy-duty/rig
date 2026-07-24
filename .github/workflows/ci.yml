@@ -47,26 +47,29 @@ jobs:
         run: bash test/drill.sh
       # The release guards, doctrine in heavy-duty/ceremony's README (#13's
       # conversion). Each one's war story — why it exists, what it refuses —
-      # lives with its implementation upstream; the four pins below and the
+      # lives with its implementation upstream; the six pins below and the
       # two workflow callers must always name the same ceremony tag.
       #
       # changelog-armed: the version-keyed arming rule (rig#66; the
       # unconditional form rig#44 reverted — this is its correct return).
-      - uses: heavy-duty/ceremony/actions/changelog-armed@0.2.0
+      - uses: heavy-duty/ceremony/actions/changelog-armed@0.3.0
       # changelog-monotonic: no shipped heading deleted or duplicated
       # (#98, box#122). Strict by default: an unresolvable base ref is red,
       # never a quiet skip — hence the fetch-depth: 0 above.
-      - uses: heavy-duty/ceremony/actions/changelog-monotonic@0.2.0
+      - uses: heavy-duty/ceremony/actions/changelog-monotonic@0.3.0
       # changelog-assembled: a release's stamped section must exactly match
       # the fragments it consumed. Vacuous on non-release PRs.
-      - uses: heavy-duty/ceremony/actions/changelog-assembled@0.2.0
+      - uses: heavy-duty/ceremony/actions/changelog-assembled@0.3.0
       # drill-recorded: a release version carries drills/<version>.md
       # (rig's drill meaning: drills/README.md). Vacuous on -dev trees.
-      - uses: heavy-duty/ceremony/actions/drill-recorded@0.2.0
+      - uses: heavy-duty/ceremony/actions/drill-recorded@0.3.0
+      # runner-isolated: PR-triggered workflows never execute unreviewed
+      # branch code on a self-hosted runner.
+      - uses: heavy-duty/ceremony/actions/runner-isolated@0.3.0
       # docs-sync: the .ceremony/ doctrine mirror is byte-identical to the
       # pin read from release.yml (ceremony#19) — a hand edit or a
       # half-done pin bump goes red here.
-      - uses: heavy-duty/ceremony/actions/docs-sync@0.2.0
+      - uses: heavy-duty/ceremony/actions/docs-sync@0.3.0
 
   # The install LIFECYCLE against a tree install.sh itself produced — the four
   # beats box and cast already run in CI (#106): install from this checkout,

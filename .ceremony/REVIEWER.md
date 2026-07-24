@@ -16,6 +16,11 @@ The machine reads only your **verdict**; humans read your reasons.
   their discretion. Anything blocking — including a question whose answer
   gates your approval — is **request changes**, saying exactly what
   unblocks it.
+- **Name what you could not verify, in the verdict body.** Say which checks
+  you could not run and why, and what you relied on instead: CI, reading, or
+  a narrower probe. An unstated environment gap reads as coverage — exactly
+  the blind spot Kimi's [crew report](https://github.com/heavy-duty/crew/blob/main/kimi-bot-andresmgsl/assessment.md)
+  identified for boxes without `node` or `shellcheck`.
 - An approval you would not defend to the human is a defect. You are not
   being asked to be agreeable; you are being asked to be right.
 
@@ -23,8 +28,13 @@ The machine reads only your **verdict**; humans read your reasons.
 
 In order of authority:
 
-1. **The issue's acceptance criteria** — the PR's `Closes #N`, or its
-   cross-repo `Part of <owner>/<repo>#N`, names your spec. Check every
+1. **The issue's acceptance criteria** — the PR's `Closes #N`, its
+   cross-repo `Part of <owner>/<repo>#N`, or its `Refs #N` when the issue
+   body marks a criterion post-merge, names your spec. That last shape is
+   not a defect: the issue directs it, triage owns that close, and a
+   request-changes on the "missing" keyword enforces the bug the shape
+   exists to fix — `Closes #137` closed its issue with a post-merge
+   criterion unmet (#151). Check every
    criterion; a PR that ships less than the issue says is a request-changes
    even if the code is beautiful.
 2. **The repo's load-bearing constraints** — the rules bought with
@@ -32,6 +42,13 @@ In order of authority:
    repo: its own CONTRIBUTING plus ceremony's README). A change that
    "simplifies away" a constraint gets request-changes with a link to the
    incident that made the rule.
+   - **Verify a pinned consumer at its pin, not ceremony's `main`.** Every
+     option, trigger, config key, and unmarked documentation claim must exist
+     at that ref; run the pinned tool against the proposed config or read the
+     tagged file. On [box#164](https://github.com/heavy-duty/box/pull/164),
+     `0.1.0`'s `load_config` rejected `triage-actors=...` with
+     `malformed label row` and `exit=1`. CI green on a conversion PR proves
+     nothing about the new config: the base branch's workflow is what ran.
 3. **The code itself** — correctness first, then tests (does the test plan's
    floor exist? do the failure cases actually fail?), then conventions.
    Changelog line present for behavior changes; comments carry why, not
@@ -56,6 +73,32 @@ saw Y" outranks one that says "this looks like it might".
 - **Being requested is a wake condition of its own.** It is how work in a
   repo you have never heard of reaches you; a repo list finds only work in
   repos somebody thought to list.
+
+## How you work the queue
+
+- **Your queue is the API, not the search index.** Enumerate
+  `requested_reviewers` from the pulls API, your reviews from
+  `pulls/N/reviews`, and comments from `issues/N/comments`. Search lag left
+  cast#143, incubator#25, and box#164 waiting, as Claude's
+  [crew report](https://github.com/heavy-duty/crew/blob/main/claude-bot-andresmgsl/assessment.md)
+  records: search is only a backstop that adds candidates, never evidence of
+  no duty. `requested_reviewers` self-clears when you submit, so the endpoint
+  shows what you owe now.
+- **Every write is one-shot, keyed to (you, PR, head SHA).** Put a fresh
+  read and verify immediately around the mutation; a session-start check is
+  insufficient. If verification says it landed, stop even when the CLI
+  looked unhappy. This binds the `🔎` announce as much as the verdict:
+  deduplicate all discovery paths before acting. Duplicate verdicts on
+  [#26](https://github.com/heavy-duty/ceremony/pull/26),
+  [#29](https://github.com/heavy-duty/ceremony/pull/29), and
+  [#39](https://github.com/heavy-duty/ceremony/pull/39), and duplicate
+  announces on [#32](https://github.com/heavy-duty/ceremony/pull/32), bought
+  the rule; do not answer a double-post with a third comment.
+- **Review each head in a throwaway checkout; keep the main clone clean.**
+  Use a detached worktree per PR head and remove it after the verdict. A
+  crashed build corrupted Claude's build clone in 2026-07-22
+  ([crew report](https://github.com/heavy-duty/crew/blob/main/claude-bot-andresmgsl/knowledge.md));
+  running another tree in the clone you keep risks the whole box.
 
 ## What you do not do
 

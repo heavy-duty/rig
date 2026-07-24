@@ -48,6 +48,17 @@ is the failure this whole flow exists to prevent.
    name what it waits on, and set `attention` so the assignee's ack is visible
    on the board — the directive and the builder's doctrine
    ([BUILDER.md](BUILDER.md#claiming)) must use one word.
+   Immediately before asserting label-borne state in prose — a hold, a
+   claim, a queue state, whether in a comment, a body header, or a
+   `needs-ruling` ask — re-read that issue's **label events**
+   (`gh api /repos/{owner}/{repo}/issues/{n}/timeline`), not just its
+   comments: the answer often arrives as a label with no comment, and a
+   write that re-read only the thread races it. Both 2026-07-24 failures —
+   [a header correction on #149](https://github.com/heavy-duty/ceremony/issues/149#issuecomment-5070758613)
+   asserting a hold 58 seconds after its lift, and
+   [a `needs-ruling` ask on #151](https://github.com/heavy-duty/ceremony/issues/151#issuecomment-5070768876)
+   the operator's label events had answered 132 seconds earlier — are this
+   sentence's absence.
    Past 24 hours from the current episode's `labeled` event, if the ruling
    still stands and doubt remains, it is triage's duty to pick the option the
    builder proceeds on, record that pick as a decision, and stay accountable
@@ -79,6 +90,13 @@ Every issue you mint carries, in this order:
 - **Tasks**: the steps, checkboxed, in order.
 - **Acceptance criteria**: checkboxed, verifiable, and honest — these become
   the builder's definition of done and the reviewer's review spec, verbatim.
+  A criterion that can only be checked after the merge must carry its own
+  mechanism, in the criterion itself: that it is post-merge, that triage
+  owns the close, and that the PR references the issue with `Refs #N`
+  rather than `Closes #N`. A criterion that survives the merge only if
+  someone remembers to reopen the issue is an incomplete criterion — #137's
+  amended body is the worked example, reopened by hand after `Closes #137`
+  closed it with the criterion unmet (#151).
 - **Test plan**: what proves it, including the cases that must fail.
 - **Dependencies**: `Blocked by #N` / `Blocks #N`, and `Part of #E` when an
   epic organizes it. Name a cross-repo dependency the same way with its
@@ -113,6 +131,14 @@ itself. Keep the checklist current — a stale epic misleads every scan.
 - **Close obsolete issues** with the reason and a link to what obsoleted
   them. Every label on every open issue stays true; the board is only worth
   scanning if it does not lie.
+- **A lifted hold makes its body prose stale in the same instant, and the
+  body is yours.** The "stays true" bar above extends past the labels to
+  the prose that describes them: when a hold lifts, correcting the body
+  header that described it is your move in the same tick — not the
+  builder's, and not left for the next reader to diff. On
+  [#149](https://github.com/heavy-duty/ceremony/issues/149) the lift
+  arrived by label alone and the body said held for the next five and a
+  half minutes; two builders read that window to opposite conclusions.
 
 ## What you never do
 
