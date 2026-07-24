@@ -121,7 +121,10 @@ run_logged() {
 tree_of() {
   local real
   real="$(readlink -f "$1" 2>/dev/null)"
-  [ -n "$real" ] || return 1
+  # -e as well as -n: GNU readlink -f resolves a path whose LAST component
+  # does not exist (exit 0), so a dangling link would hand back a tree that
+  # is not there.
+  { [ -n "$real" ] && [ -e "$real" ]; } || return 1
   dirname "$(dirname "$real")"
 }
 
@@ -201,11 +204,12 @@ capture_state() {
     else
       printf '  (sshd absent)\n'
     fi
-    # Self's Tags/BackendState are the FIRST occurrences in the status JSON
-    # (Self serializes before Peer), and peers must not leak into the capture:
-    # another machine joining the tailnet between two captures is not a
-    # convergence diff on this one.
-    printf 'tailscale.self: %s\n' "$(tailscale status --json 2>/dev/null | tr -d '\n ' | grep -o '"BackendState":"[^"]*"\|"Tags":\[[^]]*\]' | head -n2 | tr '\n' ' ' || true)"
+    # Self's Tags is the FIRST occurrence in the status JSON (Self serializes
+    # before Peer). Tags only, nothing livelier: peers joining, IPs renewing
+    # or a backend-state flap between two captures is not a convergence diff
+    # on this box, and a capture that can move on its own poisons the
+    # idempotence verdict with noise.
+    printf 'tailscale.self.tags: %s\n' "$(tailscale status --json 2>/dev/null | tr -d '\n ' | grep -o '"Tags":\[[^]]*\]' | head -n1 || true)"
     printf 'users-ledger:\n'
     sed 's/^/  /' "$ledger" 2>/dev/null || printf '  (absent)\n'
     # Per-operator effective state: the account, its groups, its lock state,
@@ -271,13 +275,16 @@ emit_record() {
     if [ "$fail" -eq 0 ] && [ "$skipped" -eq 0 ]; then
       printf '\nFailed: nothing. Every leg ran and every check passed.\n'
     else
+      # printf --: a format opening with '- ' reads as an option to bash's
+      # printf and emits NOTHING — a record whose Failed section silently
+      # vanished is exactly the lie this file exists to make impossible.
       [ "$fail" -gt 0 ] && printf '\nFailed:\n'
       for line in "${findings[@]:-}"; do
-        case "$line" in FAIL:*) printf '- %s\n' "$line" ;; esac
+        case "$line" in FAIL:*) printf -- '- %s\n' "$line" ;; esac
       done
       [ "$skipped" -gt 0 ] && printf '\nSkipped — these did NOT run, and this record is not evidence for them:\n'
       for line in "${findings[@]:-}"; do
-        case "$line" in SKIP:*) printf '- %s\n' "$line" ;; esac
+        case "$line" in SKIP:*) printf -- '- %s\n' "$line" ;; esac
       done
     fi
     printf '\nThe isolation boundary was NOT asserted here: it is box'\''s drill'\''s\n'
@@ -287,11 +294,10 @@ emit_record() {
 
 # =============================================================================
 # Pre-flight — every refusal this run can see coming fires here, before
-# anything is installed or any credential is spent (repo doctrine: errors
-# belong at the top of the run).
+# anything is installed or any credential is spent. Args are validated BEFORE
+# the root check (repo doctrine, bootstrap.sh:114 — so the refusals are
+# testable without root, and a typo costs a re-type, never a re-ssh).
 # =============================================================================
-[ "$(id -u)" -eq 0 ] || { echo "drill: must run as root (bootstrap, runner, coolify and db all require it) — ssh in as root on the throwaway machine" >&2; exit 1; }
-
 # Both refs EXPLICIT, or nothing runs. Defaulting either to main is exactly
 # the #103 hazard this harness exists to refuse: "I drilled the release" must
 # not quietly mean "I drilled whatever main was that afternoon".
@@ -312,6 +318,8 @@ if [ -z "$USERS_FILE" ]; then
   exit 2
 fi
 [ -r "$USERS_FILE" ] || { echo "drill: cannot read users file: $USERS_FILE" >&2; exit 2; }
+
+[ "$(id -u)" -eq 0 ] || { echo "drill: must run as root (bootstrap, runner, coolify and db all require it) — ssh in as root on the throwaway machine" >&2; exit 1; }
 
 # The tailnet join needs a key unless this machine already joined (a re-drill
 # on the same throwaway). Caught here, not 10 apt-minutes into bootstrap.
@@ -416,7 +424,10 @@ if [ "$BOOTSTRAP_OK" -eq 1 ]; then
     uhome="$(getent passwd "$u" | cut -d: -f6)"
     [ -s "$uhome/.ssh/authorized_keys" ] || users_bad="$users_bad $u(no-keys)"
   done < <(cat "${DRILL_LEDGER:-/etc/rig/users}" 2>/dev/null)
-  n_users="$(grep -c ' active$' "${DRILL_LEDGER:-/etc/rig/users}" 2>/dev/null || echo 0)"
+  # NOT 'grep -c … || echo 0': grep -c already prints 0 on no match (and then
+  # exits 1), so the fallback would emit a second line into the substitution.
+  n_users="$(grep -c ' active$' "${DRILL_LEDGER:-/etc/rig/users}" 2>/dev/null)" || true
+  n_users="${n_users:-0}"
   [ -z "$users_bad" ] && [ "$n_users" -gt 0 ] \
     && ok "operators converged: $n_users active, accounts and keys present" \
     || no "operators NOT converged:${users_bad:- ledger empty}"
@@ -472,11 +483,11 @@ case "$MARKER_LINE" in
       ok "installed box confirms: $BOXREPO@$BOXREF"
       if box doctor >/dev/null 2>&1; then
         ok "box doctor passes — setup-host converged; the host stack stands (box's own effective-state verdict)"
+        leg "--host yes: pinned box installed, host stack up" "PASS — $BOXREPO@$BOXREF, box doctor clean"
       else
         no "box is installed but 'box doctor' does not pass — the host stack is unproven (run 'box doctor' for box's verdict)"
+        leg "--host yes: pinned box installed, host stack up" "FAIL — box doctor does not pass"
       fi
-      leg "--host yes: pinned box installed, host stack up" \
-        "$(box doctor >/dev/null 2>&1 && echo "PASS — $BOXREPO@$BOXREF, box doctor clean" || echo "FAIL — box doctor does not pass")"
     else
       no "no 'box' on PATH after a host=yes bootstrap — the box install did not take (bootstrap warns rather than dies there; the drill does not)"
       leg "--host yes: pinned box installed, host stack up" "FAIL — box CLI never landed"
