@@ -143,6 +143,67 @@ check "bootstrap: login verify fails closed on a stalled backend" 0 "" \
 # The marker is the traits' ground truth for rig users; assert the write exists.
 check "bootstrap: role marker write is present" 0 "" \
   grep -q "/etc/rig/role" "$ROOT/commands/bootstrap.sh"
+check "bootstrap: role marker records join provenance" 0 "join-by=%s" \
+  grep -F "join-by=%s" "$ROOT/commands/bootstrap.sh"
+check "bootstrap: both first-join paths record join-by=rig" 0 "2" \
+  grep -c "^[[:space:]]*JOIN_BY=rig$" "$ROOT/commands/bootstrap.sh"
+check "bootstrap: already-joined path defaults to join-by=preexisting" 0 "JOIN_BY=preexisting" \
+  grep -F "JOIN_BY=preexisting" "$ROOT/commands/bootstrap.sh"
+
+# Drive the narrow inverse end to end. Every refusal also asserts the tailscale
+# shim was NOT called: exit status alone would miss the destructive regression.
+UNDO_FIX="$(mktemp -d)"
+UNDO_BIN="$UNDO_FIX/bin"
+UNDO_MARKER="$UNDO_FIX/role"
+UNDO_RUNNER="$UNDO_FIX/runner"
+UNDO_CALLS="$UNDO_FIX/tailscale.calls"
+mkdir -p "$UNDO_BIN" "$UNDO_RUNNER"
+cat > "$UNDO_BIN/tailscale" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$UNDO_CALLS"
+if [ "${TAILSCALE_LOGOUT_FAIL:-0}" = 1 ]; then exit 1; fi
+SH
+cat > "$UNDO_BIN/id" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = -u ]; then printf '0\n'; else exec /usr/bin/id "$@"; fi
+SH
+chmod +x "$UNDO_BIN/tailscale" "$UNDO_BIN/id"
+undo() {
+  env PATH="$UNDO_BIN:$PATH" UNDO_CALLS="$UNDO_CALLS" \
+    RIG_ROLE_MARKER="$UNDO_MARKER" RIG_RUNNER_DIR="$UNDO_RUNNER" \
+    "$ROOT/bin/rig" bootstrap --undo
+}
+undo_untouched() {
+  : > "$UNDO_CALLS"
+  if undo >"$UNDO_FIX/undo.out" 2>&1; then return 1; fi
+  [ ! -s "$UNDO_CALLS" ]
+}
+rm -f "$UNDO_MARKER"
+check "bootstrap --undo: no marker refuses without touching tailnet" 0 "" undo_untouched
+printf '%s\n' 'role=workload-server root-door=open host=no join=authkey' > "$UNDO_MARKER"
+check "bootstrap --undo: old marker names missing provenance" \
+  1 "marker predates join-by provenance" undo
+check "bootstrap --undo: old marker leaves tailnet untouched" 0 "" undo_untouched
+printf '%s\n' 'role=workload-server root-door=open host=no join=authkey join-by=preexisting' > "$UNDO_MARKER"
+check "bootstrap --undo: pre-existing join refuses by name" 1 "join-by=preexisting" undo
+check "bootstrap --undo: pre-existing join leaves tailnet untouched" 0 "" undo_untouched
+printf '%s\n' 'role=runner-server root-door=open host=no join=authkey join-by=rig' > "$UNDO_MARKER"
+printf '%s\n' '{}' > "$UNDO_RUNNER/.runner"
+check "bootstrap --undo: installed runner points at its removal verb" \
+  1 "rig runner remove" undo
+check "bootstrap --undo: installed runner leaves tailnet untouched" 0 "" undo_untouched
+rm -f "$UNDO_RUNNER/.runner"
+check "bootstrap --undo: failed logout is loud" \
+  1 "role marker kept" env TAILSCALE_LOGOUT_FAIL=1 PATH="$UNDO_BIN:$PATH" \
+    UNDO_CALLS="$UNDO_CALLS" RIG_ROLE_MARKER="$UNDO_MARKER" \
+    RIG_RUNNER_DIR="$UNDO_RUNNER" "$ROOT/bin/rig" bootstrap --undo
+check "bootstrap --undo: failed logout preserves the marker" 0 "" test -e "$UNDO_MARKER"
+: > "$UNDO_CALLS"
+check "bootstrap --undo: proven rig join succeeds" 0 "tailnet join removed" undo
+check "bootstrap --undo: successful logout was called" 0 "logout" cat "$UNDO_CALLS"
+check "bootstrap --undo: success removes the marker" 1 "" test -e "$UNDO_MARKER"
+check "bootstrap --undo: second run refuses cleanly" 1 "no /etc/rig/role marker" undo
+rm -rf "$UNDO_FIX"
 # ...and that it is written in the CURRENT vocabulary (#77). New markers say
 # root-door=; the retired class= spelling is something rig READS forever and
 # WRITES never, so a marker line that reintroduces it must not ship green.

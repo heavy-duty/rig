@@ -32,6 +32,9 @@ usage: rig bootstrap <control-plane-server|workload-server|runner-server|
        rig bootstrap <claude-box|codex-box|grok-box|kimi-box|staging-box> [--user <name>]
                      (the box TENANT roles — see their own --help; they take
                       no --users, see below)
+       rig bootstrap --undo
+                     leave the tailnet only when the role marker proves rig
+                     performed the join, then remove the role marker
 
   --users     the users file this box's operators come from — REQUIRED. It is
               applied as bootstrap's last phase, exactly as `rig users apply
@@ -114,6 +117,10 @@ EOF
 # --- args (validated before the root check, so errors are testable) ---------
 ROLE="${1:-}"
 case "$ROLE" in
+  --undo)
+    shift
+    [ $# -eq 0 ] || die "bootstrap --undo takes no arguments" 2
+    exec "$HERE/bootstrap-undo.sh" ;;
   control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom) shift ;;
   claude-box|codex-box|grok-box|kimi-box|staging-box)
     # The box TENANT roles (#31) are a different family — guests a box mints,
@@ -534,6 +541,7 @@ if ! command -v tailscale >/dev/null 2>&1; then
   log "installing tailscale"
   curl -fsSL https://tailscale.com/install.sh | sh
 fi
+JOIN_BY=preexisting
 if tailscale status >/dev/null 2>&1; then
   log "tailnet already joined; skipping tailscale up (no pre-auth key needed)"
   # ...but skipping `tailscale up` also skipped --hostname, so the TAILNET name
@@ -574,6 +582,7 @@ elif [ "$JOIN" = "login" ]; then
   log "joining tailnet as ${TS_HOSTNAME} (interactive login; follow the URL tailscale prints)"
   tailscale up --hostname="$TS_HOSTNAME"
   verify_user_owned back-out
+  JOIN_BY=rig
 else
   # env override, else prompt; never touches disk. The prompt only fires on a
   # tty: with no terminal, a bare `read` exits non-zero and `set -e` would end
@@ -594,6 +603,7 @@ else
   log "joining tailnet as ${TS_HOSTNAME} (tag comes from the pre-auth key)"
   tailscale up --authkey="$TS_AUTHKEY" --hostname="$TS_HOSTNAME"
   verify_effective_tag back-out
+  JOIN_BY=rig
 fi
 
 # --- role marker --------------------------------------------------------------
@@ -611,11 +621,12 @@ fi
 # those exist in the field by the thousand and nothing will rewrite them.
 MARKER=/etc/rig/role
 MARKER_TMP="$(mktemp)"
-printf 'role=%s root-door=%s host=%s join=%s\n' "$ROLE" "$ROOT_DOOR" "$HOST" "$JOIN" > "$MARKER_TMP"
+printf 'role=%s root-door=%s host=%s join=%s join-by=%s\n' \
+  "$ROLE" "$ROOT_DOOR" "$HOST" "$JOIN" "$JOIN_BY" > "$MARKER_TMP"
 if ! cmp -s "$MARKER_TMP" "$MARKER" 2>/dev/null; then
   mkdir -p /etc/rig
   install -m 0644 "$MARKER_TMP" "$MARKER"
-  log "role marker written: role=$ROLE root-door=$ROOT_DOOR host=$HOST join=$JOIN"
+  log "role marker written: role=$ROLE root-door=$ROOT_DOOR host=$HOST join=$JOIN join-by=$JOIN_BY"
 else
   log "role marker already current"
 fi

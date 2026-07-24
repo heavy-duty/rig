@@ -33,6 +33,10 @@ commands:
       tenant roles); custom and workstation take none. join=login
       (workstation) needs no key: interactive login, node must come up
       untagged. Run as root.
+  bootstrap --undo
+      Leave the tailnet only when /etc/rig/role proves rig performed the
+      join, then remove that marker. Refuses for pre-existing or old unknown
+      joins, and while a GitHub runner is installed. Run as root.
   bootstrap <claude-box|codex-box|grok-box|kimi-box|staging-box> [--user <name>]
       The box TENANT roles: converge a box-minted guest. The '-box' suffix
       names the family (a guest, vs the '-server' machine roles above).

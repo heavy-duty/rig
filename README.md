@@ -237,11 +237,33 @@ the only shapes it manages — every other role refuses an effective
 `tag:server` after join, one rule instead of per-role exceptions.
 
 After the tag verification passes, bootstrap writes `/etc/rig/role` — one
-line, `role=… root-door=… host=… join=…` — recording the **effective** traits,
-overrides and all, so an overridden role never lies to the commands that read
-the marker later (`rig users` keys root policy off `root-door=`). Written
-post-join and cmp-guarded, so a marker never describes a box that failed to
-become what it claims.
+line, `role=… root-door=… host=… join=… join-by=…` — recording the
+**effective** traits, overrides and all, plus whether this run performed the
+tailnet join. `join-by=rig` means bootstrap called `tailscale up`;
+`join-by=preexisting` means it found the node already joined. Old markers name
+neither and are treated as unknown, never as permission to remove a join.
+Written post-join and cmp-guarded, so a marker never describes a box that
+failed to become what it claims.
+
+### `rig bootstrap --undo`
+
+```sh
+sudo rig bootstrap --undo
+```
+
+Leaves the tailnet and then removes `/etc/rig/role`, but only when the marker
+says `join-by=rig`. A pre-existing join, an old marker with no provenance, or
+no marker at all is refused without calling `tailscale logout`; the refusal
+names the manual repair. Re-running bootstrap writes the current marker shape.
+
+Undo also refuses while a GitHub runner is installed and points at
+`rig runner remove`, because restoring the local machine while leaving an
+off-box runner registration would create a ghost in the repository. If
+`tailscale logout` fails, the marker stays in place so the command is retryable.
+
+This is intentionally not a general rollback. It does not uninstall packages,
+reverse sshd hardening, remove Docker, Node, agent CLIs, or users. Those changes
+are convergent rather than transactional and cannot be safely inferred away.
 
 Immediately after it, bootstrap stamps `/etc/rig/manifest` — **provenance**:
 which rig converged this box and when (see [`rig
