@@ -170,6 +170,35 @@ H5="$WORK/h5"; B5="$WORK/b5"
 check "channel: a ref that is neither tag nor branch dies naming both tries" \
   1 "not a tag and not a branch" rinst "$H5" "$B5" RIG_REF=no-such-ref
 
+# --- the local channel: RIG_INSTALL_SOURCE (#106) ----------------------------
+# A supported input, not test scaffolding — CI's `install:` job and test/cli.sh
+# both install THIS checkout through it. What release.sh owes is the channel's
+# contract: a directory installs, a tarball installs, neither touches the
+# network, and a bad path refuses BY NAME — never a silent fallback to
+# downloading a release, which would leave a green CI job testing the wrong
+# tree. The stub curl's log is the network witness: any download, even an
+# attempted one, would land a URL in it.
+H6="$WORK/h6"; B6="$WORK/b6"; LOG6="$WORK/log6"
+check "channel local: a directory installs" 0 "done" \
+  rinst "$H6" "$B6" RIG_INSTALL_SOURCE="$TBDIR/rig-7.7.7-relflow" CURL_STUB_LOG="$LOG6"
+check "channel local: the tree landed under its VERSION" 0 "" \
+  test -x "$H6/versions/7.7.7-relflow/bin/rig"
+check "channel local: INSTALLED_FROM records local:<path>" 0 \
+  "local:$TBDIR/rig-7.7.7-relflow" cat "$H6/versions/7.7.7-relflow/INSTALLED_FROM"
+check "channel local: curl was never consulted" 1 "" test -s "$LOG6"
+H7="$WORK/h7"; B7="$WORK/b7"; LOG7="$WORK/log7"
+check "channel local: a tarball installs too" 0 "done" \
+  rinst "$H7" "$B7" RIG_INSTALL_SOURCE="$WORK/release.tgz" CURL_STUB_LOG="$LOG7"
+check "channel local: the tarball's tree landed" 0 "" \
+  test -x "$H7/versions/7.7.7-relflow/bin/rig"
+check "channel local: ...also without a download" 1 "" test -s "$LOG7"
+H8="$WORK/h8"; B8="$WORK/b8"; LOG8="$WORK/log8"
+check "channel local: a missing path refuses BY NAME" 1 "$WORK/no-such-source" \
+  rinst "$H8" "$B8" RIG_INSTALL_SOURCE="$WORK/no-such-source" CURL_STUB_LOG="$LOG8"
+check "channel local: the refusal installed NOTHING" 1 "" test -e "$H8"
+check "channel local: ...and downloaded nothing (no silent fallback)" 1 "" \
+  test -s "$LOG8"
+
 rm -rf "$WORK"
 
 echo "---"

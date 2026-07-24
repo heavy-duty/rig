@@ -64,6 +64,21 @@ jobs:
       # half-done pin bump goes red here.
       - uses: heavy-duty/ceremony/actions/docs-sync@0.1.0
 
+  # The install LIFECYCLE against a tree install.sh itself produced — the four
+  # beats box and cast already run in CI (#106): install from this checkout,
+  # assert what landed, a converging re-run proven by an EMPTY DIFF (never an
+  # exit code), uninstall --all ending in the absence assert (`! -e` AND
+  # `! -L` — only the second sees a dangling symlink). Separate from `check`
+  # for the same reason db-integration is: fast feedback first. The runner's
+  # real $HOME is the point — no throwaway roots here; the suite refuses to
+  # run where a rig is already installed, so it cannot eat a real install.
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the install lifecycle — four beats against a real tree
+        run: bash test/install-lifecycle.sh
+
   # Kept SEPARATE from `check` on purpose: this job pulls a Postgres image and
   # stands up throwaway containers, and a slow image pull must never delay the
   # fast shellcheck + cli.sh feedback above. ubuntu-latest ships Docker running

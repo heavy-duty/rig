@@ -12,6 +12,7 @@ on the way to cutting its first release, and this file starts there.
 - GitHub entry templates route humans to Discussions and prefill triage work orders and pull requests (#123)
 - `rig platform` prints a stable machine `ID`, derived from `/etc/machine-id`, never the raw value (#95)
 - Platform, drill, docs and labels changes receive dedicated scope labels (#119)
+- CI drills the install lifecycle against a real tree — install from the checkout, converge to an empty diff, uninstall to proven absence (#106)
 - `kimi-box` joins the box tenant roles — the Kimi CLI agent guest (#109)
 - The `changelog-armed` guard returns, version-keyed (#112, ceremony#13)
 - The `.ceremony/` doctrine mirror, verified by `docs-sync` on every PR (#112, ceremony#19)
