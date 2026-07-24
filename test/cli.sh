@@ -1031,7 +1031,7 @@ check "platform: dispatches through bin/rig" 0 "PLATFORM"  "$ROOT/bin/rig" platf
 
 # The real run: exit 0 and every field present, as the running user.
 check "platform: runs as this user, exit 0" 0 "PLATFORM" "$ROOT/bin/rig" platform
-for f in HOSTNAME OS KERNEL CPU MEMORY DISK VIRT; do
+for f in HOSTNAME ID OS KERNEL CPU MEMORY DISK VIRT; do
   check "platform: reports $f" 0 "$f" "$ROOT/bin/rig" platform
 done
 # Not just the labels — the VALUES have to describe THIS machine. uname -r and
@@ -1098,10 +1098,70 @@ check "platform: reads a manifest with no trailing newline" 0 "BOOTSTRAP  0.4.0,
 printf 'role=dev class=human host=yes join=authkey\n' > "$PLATWORK/role"
 check "platform: renders the role marker's traits" 0 "dev (class=human host=yes join=authkey)" \
   env RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/role" "$ROOT/bin/rig" platform
+
+# --- identity (#95): ID names the machine, HOSTNAME names the slot ----------
+# Everything below drives RIG_MACHINE_ID fixtures, so the suite neither
+# depends on nor leaks the machine-id of whatever box runs it.
+# THE PINNED DERIVATION: sha256("rig-machine-id:<machine-id>") → first 32 hex
+# rendered 8-4-4-4-12. The literal below is that digest computed OUTSIDE the
+# implementation. This exact-match is what keeps every machine's identity
+# stable: a refactor that changes the prefix, the hash or the slicing renames
+# the whole fleet at once, and nothing but this line would notice.
+# RIG_MANIFEST/RIG_ROLE_MARKER point at the absent fixture on purpose — this
+# doubles as the unconverged-machine case: ID must render with no manifest
+# and no role marker, because a minted-at-bootstrap id was #95's rejected
+# Option B and pre-bootstrap usefulness is the property that rejected it.
+printf '0123456789abcdef0123456789abcdef\n' > "$PLATWORK/machine-id"
+check "platform: ID is the pinned derivation, manifest-free (#95)" 0 "ID         cd9fb802-1493-2336-d027-7955f328bcd8" \
+  env RIG_MACHINE_ID="$PLATWORK/machine-id" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
+# Determinism asserted, not assumed: two runs over the same input agree.
+# (Reboot-stability follows — the id is a pure function of the file content.)
+ID_A="$(env RIG_MACHINE_ID="$PLATWORK/machine-id" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform | awk '$1=="ID" {print $2}')"
+ID_B="$(env RIG_MACHINE_ID="$PLATWORK/machine-id" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform | awk '$1=="ID" {print $2}')"
+check "platform: ID is deterministic across runs" 0 "" test "$ID_A" = "$ID_B"
+printf '%s\n' "$ID_A" > "$PLATWORK/idval"
+check "platform: ID is UUID-shaped (8-4-4-4-12 hex)" 0 "" \
+  grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' "$PLATWORK/idval"
+# A different machine-id yields a different id — pinned exactly rather than
+# asserted merely unequal, so a broken extraction cannot pass as "different".
+printf 'ffffffffffffffffffffffffffffffff\n' > "$PLATWORK/machine-id-2"
+check "platform: ID changes when the machine-id changes" 0 "ID         65441a65-bf82-8c75-b610-26e68a768bd3" \
+  env RIG_MACHINE_ID="$PLATWORK/machine-id-2" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
+# THE CONFIDENTIALITY PROPERTY — the whole reason the derivation exists, and
+# the one a future refactor is most likely to lose: the raw machine-id never
+# appears anywhere in the output. machine-id(5) asks exactly this.
+env RIG_MACHINE_ID="$PLATWORK/machine-id" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" \
+  "$ROOT/bin/rig" platform > "$PLATWORK/platout" 2>&1
+check "platform: the raw machine-id never appears in the output" 1 "" \
+  grep -qF '0123456789abcdef0123456789abcdef' "$PLATWORK/platout"
+# An EMPTY machine-id must take the unavailable path, never be hashed:
+# sha256("rig-machine-id:") renders as the literal below, and hashing nothing
+# would hand every such machine the SAME id — the worst possible failure for
+# an identity field. Images do ship the file empty (machine-id(5) first-boot
+# semantics), so this is a real path, not a defensive one.
+: > "$PLATWORK/machine-id-empty"
+check "platform: an empty machine-id says why, exit 0" 0 "ID         unavailable" \
+  env RIG_MACHINE_ID="$PLATWORK/machine-id-empty" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
+env RIG_MACHINE_ID="$PLATWORK/machine-id-empty" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" \
+  "$ROOT/bin/rig" platform > "$PLATWORK/platout-empty" 2>&1
+check "platform: empty machine-id is never hashed (no collision id)" 1 "" \
+  grep -qF 'ddb56c2f-0df1-0ab0-1c12-371b1d32e34e' "$PLATWORK/platout-empty"
+check "platform: empty machine-id — every other field still renders" 0 "HOSTNAME" \
+  env RIG_MACHINE_ID="$PLATWORK/machine-id-empty" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
+# Missing file: same degradation, named reason, never an empty field.
+check "platform: a missing machine-id says why, exit 0" 0 "ID         unavailable (no " \
+  env RIG_MACHINE_ID="$PLATWORK/absent" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
+# 'uninitialized' is machine-id(5)'s other not-yet-set sentinel — hashing it
+# would collide every first-boot image exactly like the empty case.
+printf 'uninitialized\n' > "$PLATWORK/machine-id-uninit"
+check "platform: an 'uninitialized' machine-id is not hashed" 0 "ID         unavailable ($PLATWORK/machine-id-uninit is uninitialized)" \
+  env RIG_MACHINE_ID="$PLATWORK/machine-id-uninit" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform
+
 # The defining property: it writes NOTHING. Not the manifest it just reported
-# missing, not the marker, not anything else in the fixture directory — the
-# whole design rests on this, so assert it rather than trust it.
-env RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform >/dev/null 2>&1
+# missing, not the marker, not a cached id (#95's Option A stores nothing),
+# not anything else in the fixture directory — the whole design rests on
+# this, so assert it rather than trust it.
+env RIG_MACHINE_ID="$PLATWORK/absent" RIG_MANIFEST="$PLATWORK/absent" RIG_ROLE_MARKER="$PLATWORK/absent" "$ROOT/bin/rig" platform >/dev/null 2>&1
 check "platform: writes nothing (no manifest created)" 1 "" test -e "$PLATWORK/absent"
 rm -rf "$PLATWORK"
 
