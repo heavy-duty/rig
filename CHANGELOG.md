@@ -13,6 +13,7 @@ on the way to cutting its first release, and this file starts there.
 - `rig platform` prints a stable machine `ID`, derived from `/etc/machine-id`, never the raw value (#95)
 - Platform, drill, docs and labels changes receive dedicated scope labels (#119)
 - CI drills the install lifecycle against a real tree — install from the checkout, converge to an empty diff, uninstall to proven absence (#106)
+- `rig bootstrap --undo` removes only a tailnet join rig can prove it made (#63)
 - `kimi-box` joins the box tenant roles — the Kimi CLI agent guest (#109)
 - The `changelog-armed` guard returns, version-keyed (#112, ceremony#13)
 - The `.ceremony/` doctrine mirror, verified by `docs-sync` on every PR (#112, ceremony#19)
