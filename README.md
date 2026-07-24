@@ -728,6 +728,7 @@ What is this machine — computed at run time, **stored nowhere**:
 ```
 PLATFORM
 HOSTNAME   hetzner-cp-1
+ID         cd9fb802-1493-2336-d027-7955f328bcd8
 OS         Debian GNU/Linux 13 (trixie)
 KERNEL     6.12.95+deb13-amd64 (x86_64)
 CPU        AMD Ryzen 7 3700X 8-Core Processor (16 cores)
@@ -755,10 +756,33 @@ Computing at run time removes the problem instead of managing it: the answer
 is correct by construction because there is nothing to go stale.
 
 The corollary is deliberate: **`rig platform` works on a machine rig has never
-converged.** It reads only `/proc`, `uname`, `/etc/os-release`, `df` and
-`systemd-detect-virt`, so it runs on bare Debian before bootstrap — useful for
-deciding *what to converge this into*, not just for auditing afterwards. It
-needs no root, makes no network call, and writes nothing, ever.
+converged.** It reads only `/proc`, `uname`, `/etc/os-release`,
+`/etc/machine-id`, `df` and `systemd-detect-virt`, so it runs on bare Debian
+before bootstrap — useful for deciding *what to converge this into*, not just
+for auditing afterwards. It needs no root, makes no network call, and writes
+nothing, ever.
+
+**`ID` names the machine where `HOSTNAME` names the slot** — that contrast is
+why they sit together. rig sets the hostname itself during bootstrap and
+reuses it across rebuilds (`hetzner-cp-1` is a role, not hardware), so the
+hostname cannot answer "is this the same machine I converged in June, or its
+replacement?". `ID` can: it is derived from `/etc/machine-id` as
+`sha256("rig-machine-id:<machine-id>")`, first 32 hex chars rendered
+8-4-4-4-12 — computed at run time and stored nowhere, like every other fact in
+the block, so it exists before bootstrap too. It is deliberately **not** the
+raw machine-id: `machine-id(5)` asks that the value not be exposed, and the
+namespaced hash is its documented remedy — a reader of `rig platform` output
+cannot recover `/etc/machine-id`, nor correlate the id with any other tool's
+derivation of it. A missing, empty or `uninitialized` machine-id renders
+`ID unavailable (reason)` while every other field still reports; it is never
+an empty string and never a hash of nothing, which would hand every such
+machine the same identity.
+
+**Two machines reporting the same `ID` means a cloned image** — actionable
+information, not a coincidence. A host cloned from a golden image carries the
+image's `/etc/machine-id`, and no identity that lives in the filesystem
+survives the filesystem being copied. If you hit it, regenerate the clone's
+machine-id (`systemd-machine-id-setup`) rather than doubting the field.
 
 The `PROVENANCE` block is the complementary half — which rig, and when, which
 is *decided* rather than observed, so it is stored. It is **read, never
