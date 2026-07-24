@@ -2,7 +2,8 @@
 # rig platform — what is this machine? Calculated at run time, stored nowhere.
 #
 # Read-only in the strongest sense rig has: it reads /proc, uname,
-# /etc/os-release, df and systemd-detect-virt, and writes NOTHING, ever. That
+# /etc/os-release, /etc/machine-id, df and systemd-detect-virt, and writes
+# NOTHING, ever. That
 # is the design, not an implementation detail — specs change without rig doing
 # anything (RAM added, root disk resized, unattended-upgrades patching the
 # kernel), so a stored spec is stale the moment the machine changes, and
@@ -24,13 +25,19 @@ usage() {
   cat <<'EOF'
 usage: rig platform
 
-Describes the machine you are on: hostname, OS, kernel, CPU, memory, disk
-and virtualization, then rig's own provenance (which rig, when, and the role
-marker bootstrap wrote).
+Describes the machine you are on: hostname, a stable machine ID, OS, kernel,
+CPU, memory, disk and virtualization, then rig's own provenance (which rig,
+when, and the role marker bootstrap wrote).
 
-Computed at run time from /proc, uname, /etc/os-release, df and
-systemd-detect-virt. Writes nothing, needs no root, makes no network call —
-so it also works on a pristine Debian box rig has never bootstrapped, where
+ID names the machine where HOSTNAME names the slot: it is derived from
+/etc/machine-id (a namespaced sha256, never the raw value, which machine-id(5)
+asks tools not to expose). Two machines reporting the same ID were cloned
+from one image — actionable information, not a coincidence: no identity that
+lives in the filesystem survives the filesystem being copied.
+
+Computed at run time from /proc, uname, /etc/os-release, /etc/machine-id, df
+and systemd-detect-virt. Writes nothing, needs no root, makes no network call
+— so it also works on a pristine Debian box rig has never bootstrapped, where
 the provenance block reads 'not bootstrapped'.
 EOF
 }
@@ -52,6 +59,61 @@ field() { printf '%-10s %s\n' "$1" "$2"; }
 # minimal image may not carry it, and this command's whole point is running
 # before anything has been installed.
 HOSTNAME_V="$(hostname 2>/dev/null || uname -n)"
+
+# --- identity (#95) -----------------------------------------------------------
+# HOSTNAME names the slot; ID names the machine. rig itself sets the hostname
+# during bootstrap and reuses it across rebuilds ('hetzner-cp-1' is a role, not
+# hardware), so nothing above answers "is this the same machine I converged in
+# June, or its replacement?". /etc/machine-id does — but machine-id(5) asks
+# that the raw value not be exposed (it is a stable correlator across every
+# tool that leaks it), and its documented remedy is an application-specific
+# derivation. So: THE PINNED DERIVATION, fixed by #95 so two implementations
+# can never disagree —
+#
+#   printf 'rig-machine-id:%s' "$(cat /etc/machine-id)" | sha256sum
+#   → first 32 hex chars, rendered 8-4-4-4-12
+#
+# The 'rig-machine-id:' prefix is the contract, not decoration: it is what
+# keeps this id uncorrelatable with any other tool's derivation of the same
+# machine-id. sha256sum is coreutils, which this command is restricted to.
+# Derived, computed here, stored nowhere — #64's thesis — so it exists before
+# bootstrap and needs no write path.
+#
+# What this deliberately does NOT fix: a host cloned from a golden image
+# carries the clone's /etc/machine-id, so two machines reporting the same ID
+# means a cloned image. That is surfaced (help text, README) rather than
+# defended against — no identity that lives in the filesystem survives the
+# filesystem being copied.
+#
+# RIG_MACHINE_ID overrides the path so the harness can drive the present,
+# absent, empty and uninitialized cases against fixtures (repo precedent:
+# RIG_MANIFEST / RIG_ROLE_MARKER below).
+MID_FILE="${RIG_MACHINE_ID:-/etc/machine-id}"
+ID_V=""
+if [ ! -r "$MID_FILE" ]; then
+  # Never an empty string: an ID field that renders blank looks like a bug,
+  # and a missing file is a fact worth naming.
+  ID_V="unavailable (no $MID_FILE)"
+else
+  # $(...) strips the trailing newline — that is part of the pinned derivation
+  # above, not an accident of shell.
+  MID="$(cat "$MID_FILE")"
+  if [ -z "$MID" ]; then
+    # NEVER a hash of nothing: hashing the empty string would hand every such
+    # machine the SAME id — the worst possible failure for an identity field.
+    # Images do ship the file empty (that is first-boot semantics per
+    # machine-id(5)), so this path is real, not defensive.
+    ID_V="unavailable ($MID_FILE is empty)"
+  elif [ "$MID" = "uninitialized" ]; then
+    # machine-id(5)'s other not-yet-set sentinel — same collision failure as
+    # empty if hashed, so same loud degradation.
+    ID_V="unavailable ($MID_FILE is uninitialized)"
+  else
+    MID_HASH="$(printf 'rig-machine-id:%s' "$MID" | sha256sum)"
+    MID_HASH="${MID_HASH%% *}"
+    ID_V="${MID_HASH:0:8}-${MID_HASH:8:4}-${MID_HASH:12:4}-${MID_HASH:16:4}-${MID_HASH:20:12}"
+  fi
+fi
 
 # --- OS ---------------------------------------------------------------------
 # THE os-release TRAP: /etc/os-release defines VERSION, NAME and ID, so
@@ -112,6 +174,7 @@ VIRT="$(systemd-detect-virt 2>/dev/null || true)"
 
 printf '%s\n' "PLATFORM"
 field HOSTNAME "$HOSTNAME_V"
+field ID       "$ID_V"
 field OS       "${OS:-unknown}"
 field KERNEL   "$KERNEL"
 field CPU      "${CPU_MODEL:-unknown}${CORES:+ ($CORES cores)}"
