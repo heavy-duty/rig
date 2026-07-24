@@ -15,12 +15,13 @@ The directory is `drills/`, not `.drills/` — a dot-directory is invisible to
 any glob without `dotglob`, which is how #70 here and box#116 / box#118 all
 happened.
 
-**This directory is the record, not the instrument.** rig has **no drill
-harness script of its own**; its legs are run by following the documented
-procedure, and the harness lives in heavy-duty/box's `drill/`. rig does not
-reach into it to decide whether rig may ship: a cross-repo lookup that fails
-silently degrades to "pass", which is the UNREADABLE-vs-NONE shape #90 fixed.
-The gate reads a file in this repo, and nothing else.
+**This directory is the record, not the instrument.** The instrument is
+[`drill/drill.sh`](../drill/README.md) (#105): it runs the legs, asserts the
+pinned refs actually landed, decides idempotence by a mechanical state diff,
+and emits the record file this directory holds. rig does not reach into
+another repo's harness to decide whether rig may ship: a cross-repo lookup
+that fails silently degrades to "pass", which is the UNREADABLE-vs-NONE shape
+#90 fixed. The gate reads a file in this repo, and nothing else.
 
 ## What the gate requires
 
@@ -40,13 +41,16 @@ not success.
 
 ## The drill
 
-rig's legs:
+rig's legs (#105; `drill/drill.sh` runs them):
 
-- tenant guests minted and converged **via box**
+- `rig bootstrap <role>` converges the machine to its role — then runs
+  **again**, and the captured state must diff **empty** (idempotence,
+  decided mechanically). On a host=yes role this is also what installs the
+  pinned box and asserts its host stack stands.
 - `bash test/db-integration.sh` against a real Postgres on the machine
 - the GitHub runner lifecycle — register, take a job, deregister — against a
   fork
-- a coolify install
+- a coolify install, pinned, `AUTOUPDATE=false`
 
 box and rig are **mutually recursive**: `rig bootstrap --host yes` installs box
 and runs box's `setup-host`, while box's guests converge back through rig's
@@ -100,11 +104,12 @@ Candidate refs: box@1a2b3c4 (BOX_REF=release/0.4.0), rig@5d6e7f8, cast@9a0b1c2.
 
 | Leg | Result |
 | --- | --- |
-| tenant guests minted + converged via box | 3/3 |
+| convergence — bootstrap staging-server reaches its role | PASS (312s) |
 | re-converge (idempotence) | clean, no changes |
-| `test/db-integration.sh` | 14/14 |
+| --host yes: pinned box installed, host stack up | PASS — box doctor clean |
+| `test/db-integration.sh` | PASS — 14 passed, 0 failed |
 | runner lifecycle against a fork | PASS — registered, took a job, deregistered clean |
-| coolify install | PASS, ~6 min |
+| coolify install (4.1.2) | PASS (6 min) |
 
 Failed: `rig users apply` left one revoked key in `authorized_keys`
 (filed #NNN). Everything else clean.
