@@ -70,7 +70,9 @@ heavy-duty/ceremony's machinery, consumed by reference:
 is the doctrine, `.github/workflows/release.yml` here is the ≤20-line
 caller pinning it, and the guards run in `ci.yml` from the same pin.
 Bare `X.Y.Z` tags, no `v`; the tag's source tarball is the package
-`install.sh` downloads — rig ships no other artifact.
+`install.sh` downloads — rig ships no other artifact. Each release deliberately
+bumps and drills the `BOX_RELEASE` pin in `commands/bootstrap.sh`; it must never
+float to a moving ref.
 
 What stays rig's is the **drill** — the real-hardware gate before the
 handoff of a release PR, run by `drill/drill.sh` (#105): `rig bootstrap`

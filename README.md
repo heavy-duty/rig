@@ -358,23 +358,17 @@ box is present) and **opt-out** (`RIG_SKIP_BOX_INSTALL=1`, plus a graceful skip
 with a manual-command pointer when curl or the network is missing — box is the
 host *extra*, so a failed box install never aborts a bootstrap that otherwise
 succeeded). Source is pinnable with `BOX_REPO` / `BOX_REF` (default
-`heavy-duty/box@main`). If `/dev/kvm` is absent, rig warns (a host that exists to
+`heavy-duty/box@0.9.0`). If `/dev/kvm` is absent, rig warns (a host that exists to
 run VMs should have it) but does not fail — the shape is rehearsed in containers,
 which legitimately lack it. (The world-readable global install path — box under
 `/opt/box` readable by every non-root user — depends on box PR #71; until that
 merges box's root install lands in `/root`.)
 
-> **The box install is unpinned — on purpose, and out loud.** `coolify install`
-> demands a version pin; the box step tracks a moving `heavy-duty/box@main`.
-> Not because box self-updates (it doesn't — it has Coolify's shape, not the
-> runner's) but because there is nothing to pin *to*: box cuts no tags and no
-> releases, and its installer resolves `refs/heads/<ref>` — branches only — so
-> a `BOX_REF=v0.5.0` would 404 even if the tag existed. Issue #12's call was
-> that silently tracking `main` on the box that runs the agents is the option
-> not to pick — hence this paragraph. `BOX_REPO` / `BOX_REF` are the pin
-> points the day box cuts a tag (or you point at a frozen branch of your own
-> fork); `RIG_SKIP_BOX_INSTALL=1` opts out entirely for a host whose box you
-> manage by hand.
+> **The box install is release-pinned.** A rig release carries one box release
+> pin, so two machines bootstrapped from the same rig install the same box.
+> `BOX_REPO` / `BOX_REF` remain explicit overrides for development and
+> pre-release drills; `RIG_SKIP_BOX_INSTALL=1` opts out entirely for a host
+> whose box you manage by hand.
 
 `dev-server` is the closed-door VM-hosting shape — `tag:local`, box CLI installed as
 above, operators entering as themselves (`--root-door open` turns it into the
