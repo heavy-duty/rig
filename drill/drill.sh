@@ -384,7 +384,8 @@ ok "installed tree confirms: $REPO@$REF (version $DRILL_VERSION)"
 phase "Leg 1 — convergence: rig bootstrap $ROLE"
 # =============================================================================
 # BOX_REPO/BOX_REF ride the environment into bootstrap's host=yes box install,
-# so the box that lands is the pinned candidate, not box's default (main).
+# so the box that lands is the pinned candidate, not what bootstrap falls back
+# to unexported (the BOX_RELEASE pin, since rig#103 landed).
 export BOX_REPO="$BOXREPO" BOX_REF="$BOXREF"
 
 t0=$SECONDS
