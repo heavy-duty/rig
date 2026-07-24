@@ -74,7 +74,7 @@ while [ $# -gt 0 ]; do
     --coolify-version) COOLIFY_VERSION="$2"; shift 2 ;;
     --runner-repo) RUNNER_REPO="$2"; shift 2 ;;
     --runner-workflow) RUNNER_WORKFLOW="$2"; shift 2 ;;
-    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "drill: unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -593,22 +593,30 @@ else
     took_job=none
     if [ "$GH_OK" -eq 1 ]; then
       # Dispatch, then poll the newest run of that workflow to completion.
-      # ~5 min bound: a queued-forever run means the runner never picked it
-      # up, which is exactly what this check exists to catch.
+      # The newest run's ID is read BEFORE dispatching, so an old completed
+      # run can never be mistaken for the one just dispatched (the poll's
+      # verdict must be about OUR run, and workflow_dispatch takes a few
+      # seconds to materialize a run at all). ~5 min bound: a queued-forever
+      # run means the runner never picked the job up, which is exactly what
+      # this check exists to catch.
+      pre_id="$(gh run list -R "$RUNNER_REPO" --workflow "$RUNNER_WORKFLOW" --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null)"
       if gh workflow run "$RUNNER_WORKFLOW" -R "$RUNNER_REPO" >/dev/null 2>&1; then
         inf "dispatched $RUNNER_WORKFLOW on $RUNNER_REPO — waiting for the runner to take it (≤5 min)…"
         took_job=timeout
         for _i in $(seq 1 30); do
           sleep 10
-          run_json="$(gh run list -R "$RUNNER_REPO" --workflow "$RUNNER_WORKFLOW" --limit 1 --json status,conclusion 2>/dev/null)"
-          case "$run_json" in
-            *'"status":"completed"'*)
-              case "$run_json" in
-                *'"conclusion":"success"'*) took_job=success ;;
-                *) took_job=failed ;;
-              esac
-              break ;;
-          esac
+          run_line="$(gh run list -R "$RUNNER_REPO" --workflow "$RUNNER_WORKFLOW" --limit 1 \
+            --json databaseId,status,conclusion --jq '.[0] | "\(.databaseId) \(.status) \(.conclusion)"' 2>/dev/null)"
+          read -r rid rstatus rconc <<< "$run_line"
+          [ -n "${rid:-}" ] || continue
+          [ "$rid" != "${pre_id:-}" ] || continue
+          if [ "${rstatus:-}" = completed ]; then
+            case "${rconc:-}" in
+              success) took_job=success ;;
+              *) took_job=failed ;;
+            esac
+            break
+          fi
         done
       else
         took_job=nodispatch
