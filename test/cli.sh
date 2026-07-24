@@ -165,8 +165,9 @@ check "bootstrap: box install is guarded on host=yes" 0 "" \
   grep -qxE 'if \[ "\$HOST" = "yes" \]; then' "$ROOT/commands/bootstrap.sh"
 # It runs box's OWN global installer with BOX_YES=1 (non-interactive AND keeps
 # setup-host, so box builds Incus rather than only dropping the CLI on PATH).
+# shellcheck disable=SC2016
 check "bootstrap: box install runs box's installer non-interactively" 0 "" \
-  grep -q "BOX_YES=1 bash" "$ROOT/commands/bootstrap.sh"
+  grep -q 'BOX_YES=1 BOX_REF="$BOX_REF" bash' "$ROOT/commands/bootstrap.sh"
 # The default is a released semver pin carried in rig's tree, never a moving
 # branch. BOX_REF remains an override so explicit main and release-branch refs
 # still work for development and pre-release drills.
@@ -176,6 +177,15 @@ check "bootstrap: box default is a released semver pin, not a moving ref" 0 "" \
 # shellcheck disable=SC2016
 check "bootstrap: BOX_REF overrides the released default" 0 "" \
   grep -qF 'BOX_REF="${BOX_REF:-$BOX_RELEASE}"' "$ROOT/commands/bootstrap.sh"
+# Fetching the installer at BOX_REF is only the first pin: box's installer
+# independently resolves what it installs, so the ref must cross the pipe too.
+# shellcheck disable=SC2016
+check "bootstrap: box install passes BOX_REF through the installer pipe" 0 "" \
+  grep -qF 'BOX_YES=1 BOX_REF="$BOX_REF" bash' "$ROOT/commands/bootstrap.sh"
+# The same pinned command is operators' recovery path on every skip/failure.
+# shellcheck disable=SC2016
+check "bootstrap: manual box install carries the pinned ref" 0 "" \
+  grep -qF 'BOX_YES=1 BOX_REF=${BOX_REF} bash' "$ROOT/commands/bootstrap.sh"
 check "bootstrap: box repository remains pinnable" 0 "" \
   grep -qF 'BOX_REPO:-heavy-duty/box' "$ROOT/commands/bootstrap.sh"
 # Opt-out for rehearsals / offline / hand-managed hosts.
@@ -195,7 +205,8 @@ check "bootstrap: rig never apt-installs incus (box owns the daemon)" 1 "" \
 # $MARKER_TMP is a literal we grep for in the script — single quotes intended.
 # shellcheck disable=SC2016
 box_marker_at="$(grep -n 'install -m 0644 "$MARKER_TMP"' "$ROOT/commands/bootstrap.sh" | head -n1 | cut -d: -f1)"
-box_install_at="$(grep -n 'BOX_YES=1 bash' "$ROOT/commands/bootstrap.sh" | grep -v 'BOX_MANUAL=' | tail -n1 | cut -d: -f1)"
+# shellcheck disable=SC2016
+box_install_at="$(grep -n 'BOX_YES=1 BOX_REF="$BOX_REF" bash' "$ROOT/commands/bootstrap.sh" | tail -n1 | cut -d: -f1)"
 check "bootstrap: box install runs after the role marker write" \
   0 "" test "${box_marker_at:-999999}" -lt "${box_install_at:-0}"
 # On the skip/failure paths, keep pointing operators at the manual command so a

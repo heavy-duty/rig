@@ -690,7 +690,7 @@ if [ "$HOST" = "yes" ]; then
   BOX_REPO="${BOX_REPO:-heavy-duty/box}"
   BOX_REF="${BOX_REF:-$BOX_RELEASE}"
   BOX_INSTALL_URL="https://raw.githubusercontent.com/${BOX_REPO}/${BOX_REF}/install.sh"
-  BOX_MANUAL="curl -fsSL ${BOX_INSTALL_URL} | BOX_YES=1 bash"
+  BOX_MANUAL="curl -fsSL ${BOX_INSTALL_URL} | BOX_YES=1 BOX_REF=${BOX_REF} bash"
   if [ "${RIG_SKIP_BOX_INSTALL:-}" = "1" ]; then
     log "RIG_SKIP_BOX_INSTALL=1 — skipping box install; to prepare Incus by hand later: ${BOX_MANUAL}"
   elif ! command -v curl >/dev/null 2>&1; then
@@ -704,7 +704,7 @@ if [ "$HOST" = "yes" ]; then
     # A curl failure (no network) fails the pipe under pipefail and lands in the
     # else — a warning, never an abort: box is the host extra, the OS+tailnet core
     # is already done.
-    if curl -fsSL "$BOX_INSTALL_URL" | BOX_YES=1 bash; then
+    if curl -fsSL "$BOX_INSTALL_URL" | BOX_YES=1 BOX_REF="$BOX_REF" bash; then
       # Don't trust the exit code — prove the effective state (issue #12). An
       # installer can exit 0 having done less than it claims: box's setup-host
       # is written for a sudo-capable user, and one of its paths exits 0 after
