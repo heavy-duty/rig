@@ -8,10 +8,10 @@
 #     Never run it on a machine you care about.
 #
 #   TS_AUTHKEY=tskey-... bash drill/drill.sh \
-#     --rig-ref release/0.4.0 --box-ref release/0.10.0 \
+#     --rig-ref release/0.4.0 --box-ref 0.9.0 \
 #     --users ./drill-users --run-id drill-2026-07-24-a \
 #     --coolify-version 4.1.2 --runner-repo you/rig --yes
-#
+#   (--box-ref is a tag: since #103 the box that ships is the BOX_RELEASE tag.)
 # rig's drill asserts CONVERGENCE — a machine reaches its role, idempotently.
 # The legs (drills/README.md, issue #105):
 #
@@ -130,11 +130,12 @@ tree_of() {
 
 # assert_installed_from <what> <tree> <want> — ASSERT WHAT LANDED, never trust
 # that the install obeyed. An installer invoked with stale env vars silently
-# falls back to its defaults (rig#103: both BOX_REF and RIG_REF default to
-# main), and a drill that thinks it exercised release/X but actually got main
-# has proven nothing about the combination that ships — worse than one that
-# fails, because the record it leaves LOOKS like evidence. Refusal names both
-# refs, per #105's acceptance criteria.
+# falls back to its defaults — sane ones since rig#103 landed (box: the
+# BOX_RELEASE pin, rig: the latest release), which is what makes the fallback
+# invisible — and a drill that thinks it exercised release/X but actually got
+# whatever the defaults resolve to has proven nothing about the combination
+# that ships — worse than one that fails, because the record it leaves LOOKS
+# like evidence. Refusal names both refs, per #105's acceptance criteria.
 assert_installed_from() {
   local what="$1" tree="$2" want="$3" got
   got="$(cat "$tree/INSTALLED_FROM" 2>/dev/null || echo '<unreadable>')"

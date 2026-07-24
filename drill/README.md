@@ -17,9 +17,12 @@ release (#105, and #107's debt).
 - **The pinned candidate refs, both of them.** `--rig-ref` and
   `--box-ref` are required; the harness refuses to run without them and
   refuses to continue if what installed disagrees with what was asked
-  (`INSTALLED_FROM`, both trees). Until heavy-duty/rig#103 lands, both
-  installers default to `main` when unpinned — which is exactly why the
-  drill will not let a ref go unstated.
+  (`INSTALLED_FROM`, both trees). Since heavy-duty/rig#103 landed, both
+  installers have sane defaults when unpinned — box installs the
+  `BOX_RELEASE` pin (currently `0.9.0`), rig's `install.sh` resolves the
+  latest release — and a sane default is exactly why the drill will not
+  let a ref go unstated: an unpinned run silently drills a shipping pair
+  that is not the candidate, and the record it leaves looks clean.
 - **A single-use, tagged tailscale pre-auth key** in `TS_AUTHKEY`
   (`tag:local` for the default `staging-server` role — bootstrap refuses
   `tag:server` outside the control-plane shapes).
@@ -45,10 +48,14 @@ in the checkout's `drills/`):
 
 ```sh
 TS_AUTHKEY=tskey-... bash drill/drill.sh \
-  --rig-ref release/0.4.0 --box-ref release/0.10.0 \
+  --rig-ref release/0.4.0 --box-ref 0.9.0 \
   --users ./drill-users --run-id drill-2026-07-24-a \
   --coolify-version 4.1.2 --runner-repo you/rig --yes
 ```
+
+`--box-ref` is a tag on purpose: since #103 the box that ships is the
+`BOX_RELEASE` tag, so a `release/…` branch is the wrong thing to pin for
+box — while a release branch stays exactly right for rig's own candidate.
 
 It runs unattended from there. Legs execute as 1, 4, 2, 3 — Coolify's
 installer is what puts Docker on the box and the db leg needs a daemon —

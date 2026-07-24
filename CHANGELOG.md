@@ -20,6 +20,7 @@ on the way to cutting its first release, and this file starts there.
 
 ### Fixed
 
+- The drill's docs no longer claim both installers default to `main` — box installs the `BOX_RELEASE` pin, rig the latest release, and its `--box-ref` example is now a tag (#133)
 - `kimi-bot-andresmgsl` is on the review panel — the roster predated it joining the bench (#120)
 
 ## 0.3.0 — 2026-07-21
