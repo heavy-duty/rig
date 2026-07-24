@@ -4,30 +4,6 @@ History before 0.1.0 lives in git — rig grew its version surface (`VERSION`,
 `rig --version`, the side-by-side `versions/<v>` install layout; #35/#36)
 on the way to cutting its first release, and this file starts there.
 
-## Unreleased
-
-### Added
-
-- `drill/drill.sh` — the drill has an instrument: pinned-ref assertion, a mechanical idempotence diff, and a `drills/<version>.md` record emitter (#105)
-- GitHub entry templates route humans to Discussions and prefill triage work orders and pull requests (#123)
-- `rig platform` prints a stable machine `ID`, derived from `/etc/machine-id`, never the raw value (#95)
-- Platform, drill, docs and labels changes receive dedicated scope labels (#119)
-- CI drills the install lifecycle against a real tree — install from the checkout, converge to an empty diff, uninstall to proven absence (#106)
-- `rig bootstrap --undo` removes only a tailnet join rig can prove it made (#63)
-- `kimi-box` joins the box tenant roles — the Kimi CLI agent guest (#109)
-- The `changelog-armed` guard returns, version-keyed (#112, ceremony#13)
-- The `.ceremony/` doctrine mirror, verified by `docs-sync` on every PR (#112, ceremony#19)
-
-### Changed
-
-- `bootstrap --host yes` installs a pinned box release instead of `main` (#103)
-- Release and labels machinery is consumed from heavy-duty/ceremony@0.1.0 by reference — the workflows shrink to caller stubs, the guard scripts and their tests move upstream (#112, ceremony#13)
-
-### Fixed
-
-- The drill's docs no longer claim both installers default to `main` — box installs the `BOX_RELEASE` pin, rig the latest release, and its `--box-ref` example is now a tag (#133)
-- `kimi-bot-andresmgsl` is on the review panel — the roster predated it joining the bench (#120)
-
 ## 0.3.0 — 2026-07-21
 
 ### Fixed

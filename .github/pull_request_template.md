@@ -1,4 +1,4 @@
-<!-- Copied from heavy-duty/ceremony@0.1.0 .github/pull_request_template.md (heavy-duty/ceremony#24). Hand-maintained: no guard checks this against ceremony.
+<!-- Copied from heavy-duty/ceremony@0.3.0 .github/pull_request_template.md (heavy-duty/ceremony#24). Hand-maintained: no guard checks this against ceremony.
 Short on purpose: a template longer than a small PR gets deleted by
 reflex, not read (heavy-duty/ceremony#24). One issue, one PR — draft while building. -->
 
@@ -12,8 +12,8 @@ to the issue for triage to amend, not silently unshipped. -->
 
 ## Changelog
 
-- [ ] One line under `## Unreleased` — inserted **above** the heading below
-      it, never over it — or no behavior change, stated here.
+- [ ] One `changelog.d/<issue>.md` fragment containing the exact publishable
+      prose — or no behavior change, stated here.
 
 ## Round log
 
