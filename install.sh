@@ -29,9 +29,11 @@ set -euo pipefail
 # protect, and the operator flipping versions on purpose is the common case.
 # A pre-versioning flat tree is migrated in place, so upgrading is seamless.
 #
-# RIG_INSTALL_SOURCE=<dir-or-tarball> installs from a local tree instead of
-# downloading — for CI and the test suite, so what lands is the code under
-# review.
+# RIG_INSTALL_SOURCE=<dir-or-tarball> is the LOCAL channel, a supported input
+# like RIG_REF (#106): installs from that tree instead of downloading — CI's
+# install-lifecycle job and the test suites use it, so what lands is the code
+# under review. A path that is neither refuses by name, never falls back to
+# a download.
 
 REPO="${RIG_REPO:-heavy-duty/rig}"
 REF="${RIG_REF:-}"   # empty = the latest release, resolved below
