@@ -145,10 +145,8 @@ check "bootstrap: role marker write is present" 0 "" \
   grep -q "/etc/rig/role" "$ROOT/commands/bootstrap.sh"
 check "bootstrap: role marker records join provenance" 0 "join-by=%s" \
   grep -F "join-by=%s" "$ROOT/commands/bootstrap.sh"
-# shellcheck disable=SC2016
 check "bootstrap: both first-join paths record join-by=rig" 0 "2" \
-  bash -c 'test "$(grep -c "^[[:space:]]*JOIN_BY=rig$" "$1")" -eq 2; echo 2' _ \
-    "$ROOT/commands/bootstrap.sh"
+  grep -c "^[[:space:]]*JOIN_BY=rig$" "$ROOT/commands/bootstrap.sh"
 check "bootstrap: already-joined path defaults to join-by=preexisting" 0 "JOIN_BY=preexisting" \
   grep -F "JOIN_BY=preexisting" "$ROOT/commands/bootstrap.sh"
 
