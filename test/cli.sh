@@ -177,7 +177,7 @@ undo() {
 }
 undo_untouched() {
   : > "$UNDO_CALLS"
-  if undo >/tmp/rig-undo.out 2>&1; then return 1; fi
+  if undo >"$UNDO_FIX/undo.out" 2>&1; then return 1; fi
   [ ! -s "$UNDO_CALLS" ]
 }
 rm -f "$UNDO_MARKER"
@@ -205,7 +205,7 @@ check "bootstrap --undo: proven rig join succeeds" 0 "tailnet join removed" undo
 check "bootstrap --undo: successful logout was called" 0 "logout" cat "$UNDO_CALLS"
 check "bootstrap --undo: success removes the marker" 1 "" test -e "$UNDO_MARKER"
 check "bootstrap --undo: second run refuses cleanly" 1 "no /etc/rig/role marker" undo
-rm -rf "$UNDO_FIX" /tmp/rig-undo.out
+rm -rf "$UNDO_FIX"
 # ...and that it is written in the CURRENT vocabulary (#77). New markers say
 # root-door=; the retired class= spelling is something rig READS forever and
 # WRITES never, so a marker line that reintroduces it must not ship green.
