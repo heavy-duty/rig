@@ -1,0 +1,656 @@
+#!/usr/bin/env bash
+# drill/drill.sh — rig's release drill: the instrument behind drills/README.md.
+#
+#   ⚠ DESTRUCTIVE, AND MEANT TO BE. Run it on a THROWAWAY Debian machine you
+#     can format. It wipes any installed rig and reinstalls from the pinned
+#     ref, hardens sshd, sets the hostname, joins the tailnet, installs box
+#     and its Incus stack, installs Coolify and a GitHub Actions runner.
+#     Never run it on a machine you care about.
+#
+#   TS_AUTHKEY=tskey-... bash drill/drill.sh \
+#     --rig-ref release/0.4.0 --box-ref release/0.10.0 \
+#     --users ./drill-users --run-id drill-2026-07-24-a \
+#     --coolify-version 4.1.2 --runner-repo you/rig --yes
+#
+# rig's drill asserts CONVERGENCE — a machine reaches its role, idempotently.
+# The legs (drills/README.md, issue #105):
+#
+#   1. convergence + idempotence — `rig bootstrap <role> --users <path>`
+#      reaches the declared role; a re-run produces an EMPTY state diff,
+#      mechanically, never by eye. Rides along: the --host yes assertions
+#      (the pinned box installed, its host stack stands — and it STOPS there;
+#      the isolation boundary is box's drill's assertion, not this one's).
+#   2. db — the real dump/restore round-trip, test/db-integration.sh.
+#   3. runner lifecycle — register, take a job, deregister, against a fork.
+#   4. coolify install — at a pinned version, AUTOUPDATE=false.
+#
+# Execution order is 1, 4, 2, 3 — coolify's installer is what puts Docker on
+# the box, and leg 2 needs a daemon; running db before coolify would skip a
+# leg this same run makes runnable. The record lists legs as they ran.
+#
+# Exit 0 = no check failed. A FAILED drill still emits a complete record —
+# the gate wants evidence, not success — and skipped legs are counted and
+# named, never folded into the passes (heavy-duty/box#153's defect class).
+#
+# The file is one long 'probe && ok "…" || no "…"'. ok/no always return 0, so
+# the C-may-run-when-A-is-true trap SC2015 warns about cannot fire here.
+# shellcheck disable=SC2015
+#
+# NOT -e: a failing check is data, not a crash — a drill that aborts on its
+# first failure reports one problem per afternoon. NOT pipefail: checks of the
+# 'refusal 2>&1 | grep -q text' shape have a left side that exits non-zero BY
+# DESIGN, and 'grep -q' SIGPIPEs the left side on early match — box's first
+# live run turned both into false FAILs. The pipeline verdict must be grep's
+# alone. (box drill/drill.sh's header, the discipline #105 prescribes.)
+set -u
+
+SELF="$(readlink -f "$0")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+
+REPO="${RIG_REPO:-heavy-duty/rig}"
+REF="${RIG_REF:-}"
+BOXREPO="${BOX_REPO:-heavy-duty/box}"
+BOXREF="${BOX_REF:-}"
+ROLE=staging-server
+USERS_FILE="${DRILL_USERS_FILE:-}"
+RUN_ID="${DRILL_RUN_ID:-drill-$(date -u +%F)}"
+RECORD="${DRILL_RECORD:-}"
+COOLIFY_VERSION="${DRILL_COOLIFY_VERSION:-}"
+RUNNER_REPO="${DRILL_RUNNER_REPO:-}"
+RUNNER_WORKFLOW="${DRILL_RUNNER_WORKFLOW:-drill.yml}"
+YES=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --yes|-y) YES=1; shift ;;
+    --rig-repo) REPO="$2"; shift 2 ;;
+    --rig-ref) REF="$2"; shift 2 ;;
+    --box-repo) BOXREPO="$2"; shift 2 ;;
+    --box-ref) BOXREF="$2"; shift 2 ;;
+    --role) ROLE="$2"; shift 2 ;;
+    --users) USERS_FILE="$2"; shift 2 ;;
+    --run-id) RUN_ID="$2"; shift 2 ;;
+    --record) RECORD="$2"; shift 2 ;;
+    --coolify-version) COOLIFY_VERSION="$2"; shift 2 ;;
+    --runner-repo) RUNNER_REPO="$2"; shift 2 ;;
+    --runner-workflow) RUNNER_WORKFLOW="$2"; shift 2 ;;
+    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "drill: unknown option: $1 (see --help)" >&2; exit 2 ;;
+  esac
+done
+
+# --- the reporting verbs (box drill/drill.sh:52-58, the parts worth copying) --
+# ok/no/skip/note always return 0: the body stays one long sequence of
+# 'probe && ok || no' without fighting the shell. SKIP is its own verb and its
+# own counter — a leg that did not run must be visually and arithmetically
+# distinct from one that passed (box#153's defect class: a silent skip reads
+# as a pass in the record, months later).
+pass=0; fail=0; skipped=0; findings=()
+ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$*"; pass=$((pass + 1)); }
+no()   { printf '  \033[31mFAIL\033[0m  %s\n' "$*"; fail=$((fail + 1)); findings+=("FAIL: $*"); }
+skip() { printf '  \033[35mSKIP\033[0m  %s\n' "$*"; skipped=$((skipped + 1)); findings+=("SKIP: $*"); }
+note() { printf '  \033[33mNOTE\033[0m  %s\n' "$*"; findings+=("NOTE: $*"); }
+inf()  { printf '        %s\n' "$*"; }
+phase(){ printf '\n\033[1m══ %s\033[0m\n' "$*"; }
+
+# The record's leg table, appended as legs run. One row per leg, result text
+# written at the moment the leg's verdict is known — never reconstructed from
+# memory at the end (an invented number is worse than no number).
+LEG_NAMES=(); LEG_RESULTS=()
+leg() { LEG_NAMES+=("$1"); LEG_RESULTS+=("$2"); }
+
+# run_logged <log> <cmd...> — run a long command with its narration in a file
+# and a dot every 5s on the terminal: a silent multi-minute apt/install run is
+# indistinguishable from a wedge, and that ambiguity has cost box whole
+# evenings. Returns the command's exit code.
+run_logged() {
+  local log="$1"; shift
+  inf "watch it live in another terminal:  tail -f $log"
+  "$@" >"$log" 2>&1 </dev/null &
+  local pid=$!
+  while kill -0 "$pid" 2>/dev/null; do printf '.'; sleep 5; done
+  printf '\n'
+  wait "$pid"
+}
+
+# tree_of <cli-path> — the versioned install tree a CLI's symlink chain lands
+# in. Both rig and box install as <root>/versions/<v>/bin/<cli> behind a
+# 'current' link, so the tree is two dirnames above the resolved binary —
+# derived from the chain itself, never from a hardcoded install root (root vs
+# user installs put the root in different places).
+tree_of() {
+  local real
+  real="$(readlink -f "$1" 2>/dev/null)"
+  [ -n "$real" ] || return 1
+  dirname "$(dirname "$real")"
+}
+
+# assert_installed_from <what> <tree> <want> — ASSERT WHAT LANDED, never trust
+# that the install obeyed. An installer invoked with stale env vars silently
+# falls back to its defaults (rig#103: both BOX_REF and RIG_REF default to
+# main), and a drill that thinks it exercised release/X but actually got main
+# has proven nothing about the combination that ships — worse than one that
+# fails, because the record it leaves LOOKS like evidence. Refusal names both
+# refs, per #105's acceptance criteria.
+assert_installed_from() {
+  local what="$1" tree="$2" want="$3" got
+  got="$(cat "$tree/INSTALLED_FROM" 2>/dev/null || echo '<unreadable>')"
+  if [ "$got" != "$want" ]; then
+    printf 'drill: FATAL — asked to install %s from %s, but the installed tree says %s.\n' "$what" "$want" "$got" >&2
+    printf '  (tree: %s)\n' "$tree" >&2
+    printf '  A drill that silently drills the wrong code is worse than one that fails:\n' >&2
+    printf '  every result below would describe a tree that is not the candidate. Check\n' >&2
+    printf '  the env this drill inherited (a stale RIG_REF/BOX_REF export), fix the\n' >&2
+    printf '  pin, and re-run.\n' >&2
+    return 1
+  fi
+  return 0
+}
+
+# classify_leg <rc> <outfile> — pass | skip | fail. The skip contract is
+# test/db-integration.sh's, copied carefully: it skips CLEANLY (exit 0) with a
+# 'skip: <reason>' line when it cannot run, so exit code alone reads a
+# not-run leg as a pass. The reason line is the verdict's tiebreaker; a
+# non-zero exit is a fail whatever the output says (a die after a skip line
+# would be a broken harness, not a skip).
+classify_leg() {
+  local rc="$1" out="$2"
+  if [ "$rc" -eq 0 ] && grep -q '^skip:' "$out" 2>/dev/null; then
+    printf 'skip'
+  elif [ "$rc" -eq 0 ]; then
+    printf 'pass'
+  else
+    printf 'fail'
+  fi
+}
+
+# capture_state <outfile> — the convergent surface bootstrap owns, as one
+# diffable text file. Leg 1's idempotence claim is decided by capturing this
+# BEFORE and AFTER the re-run and diffing — mechanically, because idempotence
+# is the single easiest property to convince yourself of by eye (#105).
+#
+# What is captured is what bootstrap CONVERGES, nothing that legitimately
+# moves between two back-to-back runs: no package lists (unattended-upgrades
+# may act between captures), no clocks. The manifest is included WHOLE on
+# purpose — lib/manifest.sh's contract is that a same-version re-run renders
+# byte-identical content (converged_at tracks the version, not the run), so
+# the diff ENFORCES that contract instead of exempting it.
+#
+# Every path is overridable so test/drill.sh proves the capture-and-diff
+# machinery against fixtures, without root (repo precedent: RIG_ROLE_MARKER,
+# RIG_MANIFEST). Absent files and commands degrade to a deterministic
+# '(absent)' — a capture must never fail, only describe.
+capture_state() {
+  local out="$1" marker manifest ledger autoup hosts u state home keys
+  marker="${RIG_ROLE_MARKER:-/etc/rig/role}"
+  manifest="${RIG_MANIFEST:-/etc/rig/manifest}"
+  ledger="${DRILL_LEDGER:-/etc/rig/users}"
+  autoup="${DRILL_AUTOUPGRADES:-/etc/apt/apt.conf.d/20auto-upgrades}"
+  hosts="${DRILL_ETC_HOSTS:-/etc/hosts}"
+  {
+    printf 'hostname: %s\n' "$(hostname 2>/dev/null || echo '(absent)')"
+    printf 'hosts.127.0.1.1: %s\n' "$(grep -E '^127\.0\.1\.1[[:space:]]' "$hosts" 2>/dev/null || echo '(absent)')"
+    printf 'role-marker: %s\n' "$(cat "$marker" 2>/dev/null || echo '(absent)')"
+    printf 'manifest:\n'
+    sed 's/^/  /' "$manifest" 2>/dev/null || printf '  (absent)\n'
+    printf 'auto-upgrades:\n'
+    sed 's/^/  /' "$autoup" 2>/dev/null || printf '  (absent)\n'
+    printf 'sshd-effective:\n'
+    if command -v sshd >/dev/null 2>&1; then
+      sshd -T 2>/dev/null | sort | sed 's/^/  /' || printf '  (sshd -T failed)\n'
+    else
+      printf '  (sshd absent)\n'
+    fi
+    # Self's Tags/BackendState are the FIRST occurrences in the status JSON
+    # (Self serializes before Peer), and peers must not leak into the capture:
+    # another machine joining the tailnet between two captures is not a
+    # convergence diff on this one.
+    printf 'tailscale.self: %s\n' "$(tailscale status --json 2>/dev/null | tr -d '\n ' | grep -o '"BackendState":"[^"]*"\|"Tags":\[[^]]*\]' | head -n2 | tr '\n' ' ' || true)"
+    printf 'users-ledger:\n'
+    sed 's/^/  /' "$ledger" 2>/dev/null || printf '  (absent)\n'
+    # Per-operator effective state: the account, its groups, its lock state,
+    # its keys. sha256 of authorized_keys, not the keys themselves — the
+    # capture may end up quoted in a record and keys are long, not secret.
+    while read -r u state; do
+      [ -n "${u:-}" ] || continue
+      if ! id -u "$u" >/dev/null 2>&1; then
+        printf 'user.%s: (no account)\n' "$u"
+        continue
+      fi
+      printf 'user.%s: state=%s groups=%s lock=%s\n' "$u" "${state:-active}" \
+        "$(id -Gn "$u" 2>/dev/null | tr ' ' ',')" \
+        "$(passwd -S "$u" 2>/dev/null | awk '{print $2}' || echo '?')"
+      home="$(getent passwd "$u" | cut -d: -f6)"
+      keys="$home/.ssh/authorized_keys"
+      printf 'user.%s.authorized_keys: %s\n' "$u" \
+        "$(sha256sum "$keys" 2>/dev/null | cut -d' ' -f1 || echo '(none)')"
+    done < <(cat "$ledger" 2>/dev/null)
+    printf 'sudoers.d:\n'
+    find "${DRILL_SUDOERS_DIR:-/etc/sudoers.d}" -maxdepth 1 -type f 2>/dev/null | sort \
+      | while read -r u; do printf '  %s %s\n' "$(sha256sum "$u" | cut -d' ' -f1)" "$u"; done
+    printf 'box: %s\n' "$(command -v box 2>/dev/null || echo '(absent)')"
+  } > "$out"
+}
+
+# ref_sha <owner/repo> <ref> — the commit the record cites. Tags outrank
+# branches (the installer's own precedence, install.sh:117-120). Resolved once
+# up front and reused, so the record and the install describe the same instant
+# even if the branch moves mid-drill. Empty on failure; the record then says
+# 'unresolved' rather than inventing one.
+ref_sha() {
+  local sha
+  sha="$(git ls-remote "https://github.com/$1" "refs/tags/$2" 2>/dev/null | head -n1 | cut -f1)"
+  [ -n "$sha" ] || sha="$(git ls-remote "https://github.com/$1" "refs/heads/$2" 2>/dev/null | head -n1 | cut -f1)"
+  printf '%s' "${sha:0:7}"
+}
+
+# emit_record <path> — drills/<version>.md, in the shape drills/README.md
+# defines: what ran, on what host, the pinned refs and SHAs, the numbers, and
+# what failed. Emitted on EVERY completed run — a failed drill is still a
+# valid record; the gate wants evidence, not success. Skipped legs are listed
+# by name: a record with no failures listed reads as "nothing broke", so a leg
+# that was not run says so instead of being omitted.
+emit_record() {
+  local out="$1" i os cpus ram virt line
+  os="$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-unknown}")"
+  cpus="$(nproc 2>/dev/null || echo '?')"
+  ram="$(awk '/MemTotal/{printf "%.0f", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo '?')"
+  virt="$(systemd-detect-virt 2>/dev/null || echo unknown)"
+  {
+    printf '# Release drill — %s — %s\n\n' "$DRILL_VERSION" "$(date -u +%F)"
+    printf 'Run ID: %s. Host: %s, %s vCPU / %s GB RAM (%s).\n' "$RUN_ID" "${os:-unknown}" "$cpus" "$ram" "$virt"
+    printf 'Candidate refs: rig@%s (RIG_REF=%s), box@%s (BOX_REF=%s).\n' \
+      "${RIG_SHA:-unresolved}" "$REF" "${BOX_SHA:-unresolved}" "$BOXREF"
+    printf 'Instrument: drill/drill.sh, legs in execution order.\n\n'
+    printf '| Leg | Result |\n'
+    printf '| --- | --- |\n'
+    for i in "${!LEG_NAMES[@]}"; do
+      printf '| %s | %s |\n' "${LEG_NAMES[$i]}" "${LEG_RESULTS[$i]}"
+    done
+    printf '\nChecks: %s passed, %s failed, %s skipped.\n' "$pass" "$fail" "$skipped"
+    if [ "$fail" -eq 0 ] && [ "$skipped" -eq 0 ]; then
+      printf '\nFailed: nothing. Every leg ran and every check passed.\n'
+    else
+      [ "$fail" -gt 0 ] && printf '\nFailed:\n'
+      for line in "${findings[@]:-}"; do
+        case "$line" in FAIL:*) printf '- %s\n' "$line" ;; esac
+      done
+      [ "$skipped" -gt 0 ] && printf '\nSkipped — these did NOT run, and this record is not evidence for them:\n'
+      for line in "${findings[@]:-}"; do
+        case "$line" in SKIP:*) printf '- %s\n' "$line" ;; esac
+      done
+    fi
+    printf '\nThe isolation boundary was NOT asserted here: it is box'\''s drill'\''s\n'
+    printf 'assertion (heavy-duty/box drill/drill.sh), joined to this record by the run ID.\n'
+  } > "$out"
+}
+
+# =============================================================================
+# Pre-flight — every refusal this run can see coming fires here, before
+# anything is installed or any credential is spent (repo doctrine: errors
+# belong at the top of the run).
+# =============================================================================
+[ "$(id -u)" -eq 0 ] || { echo "drill: must run as root (bootstrap, runner, coolify and db all require it) — ssh in as root on the throwaway machine" >&2; exit 1; }
+
+# Both refs EXPLICIT, or nothing runs. Defaulting either to main is exactly
+# the #103 hazard this harness exists to refuse: "I drilled the release" must
+# not quietly mean "I drilled whatever main was that afternoon".
+if [ -z "$REF" ] || [ -z "$BOXREF" ]; then
+  echo "drill: both refs must be pinned explicitly — a drill against an unstated ref is not evidence (#103):" >&2
+  echo "  --rig-ref <ref>   (or RIG_REF)   the rig candidate, e.g. release/0.4.0   [got: ${REF:-<unset>}]" >&2
+  echo "  --box-ref <ref>   (or BOX_REF)   the box that will ship with it          [got: ${BOXREF:-<unset>}]" >&2
+  exit 2
+fi
+
+case "$ROLE" in
+  staging-server|dev-server|control-plane-server|workload-server|runner-server) ;;
+  *) echo "drill: --role $ROLE is not a machine role this drill can converge unattended" >&2; exit 2 ;;
+esac
+
+if [ -z "$USERS_FILE" ]; then
+  echo "drill: --users <path> is required — leg 1 asserts operators converged, and bootstrap requires the file (its --no-users opt-out would leave leg 1 asserting nothing)" >&2
+  exit 2
+fi
+[ -r "$USERS_FILE" ] || { echo "drill: cannot read users file: $USERS_FILE" >&2; exit 2; }
+
+# The tailnet join needs a key unless this machine already joined (a re-drill
+# on the same throwaway). Caught here, not 10 apt-minutes into bootstrap.
+if [ -z "${TS_AUTHKEY:-}" ]; then
+  if ! { command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; }; then
+    echo "drill: TS_AUTHKEY is unset and this machine has not joined a tailnet — leg 1's bootstrap will refuse. Mint a single-use TAGGED pre-auth key and export TS_AUTHKEY." >&2
+    exit 2
+  fi
+fi
+
+command -v curl >/dev/null 2>&1 || { echo "drill: curl is required (the pinned installs download over it)" >&2; exit 1; }
+
+if [ "$YES" -ne 1 ]; then
+  cat <<EOF
+This will, ON THIS HOST ($(hostname)):
+  · wipe any installed rig and reinstall $REPO@$REF from scratch
+  · run 'rig bootstrap $ROLE --users $USERS_FILE' — sshd hardening, hostname
+    change, tailnet join, box ($BOXREPO@$BOXREF) + its Incus stack — TWICE
+    (the second run is the idempotence assertion)
+  · install Coolify${COOLIFY_VERSION:+ $COOLIFY_VERSION} and a GitHub runner${RUNNER_REPO:+ against $RUNNER_REPO}
+Only do this on a THROWAWAY machine you can format.
+EOF
+  [ -t 0 ] || { echo "drill: no TTY to confirm on — pass --yes if you mean it." >&2; exit 2; }
+  printf 'Continue? [y/N] '
+  read -r reply
+  case "$reply" in y|Y|yes) ;; *) echo "stopped."; exit 1 ;; esac
+fi
+
+phase "Pinned candidates"
+RIG_SHA="$(ref_sha "$REPO" "$REF")"
+BOX_SHA="$(ref_sha "$BOXREPO" "$BOXREF")"
+inf "rig: $REPO@$REF (${RIG_SHA:-unresolved})"
+inf "box: $BOXREPO@$BOXREF (${BOX_SHA:-unresolved})"
+inf "run ID: $RUN_ID — drills sharing this substrate share it (drills/README.md)"
+
+# =============================================================================
+phase "Installing rig ($REPO@$REF) from scratch"
+# =============================================================================
+# The drill proves a tree from SCRATCH every run — a fresh machine, not a
+# converged install — so any prior rig goes first (root's install lands at
+# \$HOME/.local/share/rig with the /usr/local/bin symlink).
+rm -rf "$HOME/.local/share/rig" /usr/local/bin/rig
+
+if ! run_logged /tmp/drill-rig-install.log \
+     env RIG_REPO="$REPO" RIG_REF="$REF" \
+     bash -c "bash <(curl -fsSL \"https://raw.githubusercontent.com/$REPO/$REF/install.sh\")"; then
+  echo "drill: rig's installer failed — tail of /tmp/drill-rig-install.log:" >&2
+  tail -5 /tmp/drill-rig-install.log >&2
+  exit 1
+fi
+command -v rig >/dev/null 2>&1 || { echo "drill: installer reported success but no 'rig' on PATH" >&2; exit 1; }
+
+# ASSERT WHAT LANDED — the up-front ref assertion, fatal on mismatch.
+RIG_TREE="$(tree_of "$(command -v rig)")"
+assert_installed_from rig "$RIG_TREE" "$REPO@$REF" || exit 1
+DRILL_VERSION="$(head -n1 "$RIG_TREE/VERSION" 2>/dev/null || echo unknown)"
+ok "installed tree confirms: $REPO@$REF (version $DRILL_VERSION)"
+[ -n "$RECORD" ] || RECORD="$ROOT/drills/$DRILL_VERSION.md"
+
+# =============================================================================
+phase "Leg 1 — convergence: rig bootstrap $ROLE"
+# =============================================================================
+# BOX_REPO/BOX_REF ride the environment into bootstrap's host=yes box install,
+# so the box that lands is the pinned candidate, not box's default (main).
+export BOX_REPO="$BOXREPO" BOX_REF="$BOXREF"
+
+t0=$SECONDS
+if run_logged /tmp/drill-bootstrap-1.log rig bootstrap "$ROLE" --users "$USERS_FILE"; then
+  ok "rig bootstrap $ROLE --users … exited 0  ($((SECONDS - t0))s)"
+  BOOTSTRAP_OK=1
+else
+  no "rig bootstrap $ROLE FAILED — tail: $(tail -3 /tmp/drill-bootstrap-1.log | tr '\n' ' ')"
+  BOOTSTRAP_OK=0
+fi
+
+MARKER_LINE="$(cat "${RIG_ROLE_MARKER:-/etc/rig/role}" 2>/dev/null || true)"
+if [ "$BOOTSTRAP_OK" -eq 1 ]; then
+  # The role, asserted on EFFECTIVE state — the marker, the daemon's resolved
+  # config, the netmap's granted tags — never on what was requested (the
+  # sshd-first-wins lesson, lib/sshd.sh:63-70).
+  case "$MARKER_LINE" in
+    "role=$ROLE "*) ok "role marker: $MARKER_LINE" ;;
+    *) no "role marker is '$MARKER_LINE' — expected role=$ROLE …" ;;
+  esac
+  sshd -T 2>/dev/null | grep -qx 'passwordauthentication no' \
+    && ok "sshd -T resolves passwordauthentication no (the hardening took)" \
+    || no "sshd still resolves password auth — the 00-rig.conf drop-in is not winning"
+  ts_tags="$(tailscale status --json 2>/dev/null | tr -d '\n ' | grep -o '"Tags":\[[^]]*\]' | head -n1)"
+  if [ -n "$ts_tags" ] && [ "$ts_tags" != '"Tags":[]' ]; then
+    ok "tailnet joined, tagged: $ts_tags"
+  else
+    no "tailnet join did not leave a tagged node (got: ${ts_tags:-nothing}) — bootstrap's verify should have refused this"
+  fi
+  grep -q 'Unattended-Upgrade "1"' /etc/apt/apt.conf.d/20auto-upgrades 2>/dev/null \
+    && ok "unattended-upgrades enabled" || no "20auto-upgrades missing or wrong"
+  grep -q "converged_by=$DRILL_VERSION" "${RIG_MANIFEST:-/etc/rig/manifest}" 2>/dev/null \
+    && ok "manifest: converged_by=$DRILL_VERSION" || no "manifest does not name $DRILL_VERSION as the converging rig"
+  users_bad=""
+  while read -r u state; do
+    [ "$state" = active ] || continue
+    id -u "$u" >/dev/null 2>&1 || { users_bad="$users_bad $u(no-account)"; continue; }
+    uhome="$(getent passwd "$u" | cut -d: -f6)"
+    [ -s "$uhome/.ssh/authorized_keys" ] || users_bad="$users_bad $u(no-keys)"
+  done < <(cat "${DRILL_LEDGER:-/etc/rig/users}" 2>/dev/null)
+  n_users="$(grep -c ' active$' "${DRILL_LEDGER:-/etc/rig/users}" 2>/dev/null || echo 0)"
+  [ -z "$users_bad" ] && [ "$n_users" -gt 0 ] \
+    && ok "operators converged: $n_users active, accounts and keys present" \
+    || no "operators NOT converged:${users_bad:- ledger empty}"
+  leg "convergence — bootstrap $ROLE reaches its role" \
+    "$([ "$fail" -eq 0 ] && echo "PASS ($((SECONDS - t0))s)" || echo "FAIL — see Failed below")"
+
+  # --- idempotence: the claim this drill exists to make ----------------------
+  # Capture, re-run, capture, diff. Mechanically — never "watched it not
+  # obviously break". An empty diff IS the definition of converged.
+  phase "Leg 1 — idempotence: the re-run must change nothing"
+  pre="$(mktemp)"; post="$(mktemp)"
+  capture_state "$pre"
+  t0=$SECONDS
+  if run_logged /tmp/drill-bootstrap-2.log rig bootstrap "$ROLE" --users "$USERS_FILE"; then
+    ok "second bootstrap exited 0  ($((SECONDS - t0))s)"
+  else
+    no "second bootstrap FAILED — tail: $(tail -3 /tmp/drill-bootstrap-2.log | tr '\n' ' ')"
+  fi
+  capture_state "$post"
+  if statediff="$(diff -u "$pre" "$post")"; then
+    ok "re-converge is a no-op: the state diff is empty"
+    leg "re-converge (idempotence)" "clean, no changes"
+  else
+    dlines="$(printf '%s\n' "$statediff" | grep -c '^[+-][^+-]')"
+    no "re-converge CHANGED the box — $dlines state line(s) differ:"
+    printf '%s\n' "$statediff" | sed 's/^/          /'
+    leg "re-converge (idempotence)" "DIRTY — $dlines state line(s) changed on the re-run"
+  fi
+  rm -f "$pre" "$post"
+else
+  leg "convergence — bootstrap $ROLE reaches its role" "FAIL — bootstrap exited non-zero"
+  skip "idempotence not asserted — the first converge already failed, a re-run diff would measure noise"
+  leg "re-converge (idempotence)" "SKIPPED — first converge failed"
+fi
+
+# =============================================================================
+phase "--host yes — the box that will ship"
+# =============================================================================
+# The assertions #105 settles this leg at: the installer ran, INSTALLED_FROM
+# matches the requested BOX_REF, setup-host exited clean, the stack it claims
+# stands. Then it STOPS. Not one isolation probe: two records that both claim
+# the trust boundary will eventually disagree with no tiebreaker, and a
+# partial isolation check reads — months later, in a record — as though the
+# boundary was drilled (box#153's shape through a different door). Resist
+# adding "just one" probe here; that is box's drill's whole job.
+case "$MARKER_LINE" in
+  *"host=yes"*)
+    if command -v box >/dev/null 2>&1; then
+      ok "box CLI on PATH"
+      BOX_TREE="$(tree_of "$(command -v box)")"
+      # Fatal, like rig's own: a wrong box under --host yes poisons the pair.
+      assert_installed_from box "$BOX_TREE" "$BOXREPO@$BOXREF" || exit 1
+      ok "installed box confirms: $BOXREPO@$BOXREF"
+      if box doctor >/dev/null 2>&1; then
+        ok "box doctor passes — setup-host converged; the host stack stands (box's own effective-state verdict)"
+      else
+        no "box is installed but 'box doctor' does not pass — the host stack is unproven (run 'box doctor' for box's verdict)"
+      fi
+      leg "--host yes: pinned box installed, host stack up" \
+        "$(box doctor >/dev/null 2>&1 && echo "PASS — $BOXREPO@$BOXREF, box doctor clean" || echo "FAIL — box doctor does not pass")"
+    else
+      no "no 'box' on PATH after a host=yes bootstrap — the box install did not take (bootstrap warns rather than dies there; the drill does not)"
+      leg "--host yes: pinned box installed, host stack up" "FAIL — box CLI never landed"
+    fi
+    inf "isolation NOT asserted here — deliberately. The VM trust boundary is box's"
+    inf "assertion, made by box's own drill (~85 probes); this leg stops at 'the pinned"
+    inf "box installed and its host stack stands'. The records join on the run ID."
+    ;;
+  *)
+    skip "--host yes assertions: role $ROLE left host=no (marker: ${MARKER_LINE:-absent})"
+    leg "--host yes: pinned box installed, host stack up" "SKIPPED — this role does not host VMs"
+    ;;
+esac
+
+# =============================================================================
+phase "Leg 4 — coolify install (pinned, AUTOUPDATE=false)"
+# =============================================================================
+# Runs BEFORE leg 2 on purpose: Coolify's installer is what puts Docker on the
+# box, and the db leg needs a daemon — ordering them the other way around
+# would manufacture a skip this same run could have avoided.
+if [ -z "$COOLIFY_VERSION" ]; then
+  skip "coolify install: no --coolify-version pin given — the leg did not run (rig's own install refuses to default a version, and so does its drill)"
+  leg "coolify install" "SKIPPED — no version pin provided"
+else
+  t0=$SECONDS
+  if run_logged /tmp/drill-coolify.log rig coolify install --version "$COOLIFY_VERSION"; then
+    ok "rig coolify install --version $COOLIFY_VERSION exited 0  ($((SECONDS - t0))s)"
+    grep -qx 'AUTOUPDATE=false' /data/coolify/source/.env 2>/dev/null \
+      && ok "AUTOUPDATE=false landed in /data/coolify/source/.env — the platform will not move under its operators" \
+      || no "AUTOUPDATE=false is NOT in coolify's .env — the pin is not holding"
+    cstate="$(docker inspect -f '{{.State.Status}}' coolify 2>/dev/null || echo absent)"
+    [ "$cstate" = running ] && ok "the coolify container is running" \
+                            || no "coolify container state: $cstate (expected running)"
+    leg "coolify install ($COOLIFY_VERSION)" \
+      "$([ "$cstate" = running ] && echo "PASS ($(((SECONDS - t0) / 60)) min)" || echo "FAIL — container $cstate")"
+  else
+    no "coolify install FAILED — tail: $(tail -3 /tmp/drill-coolify.log | tr '\n' ' ')"
+    leg "coolify install ($COOLIFY_VERSION)" "FAIL — installer exited non-zero"
+  fi
+fi
+
+# =============================================================================
+phase "Leg 2 — db dump/restore round-trip (test/db-integration.sh)"
+# =============================================================================
+# Driven from the INSTALLED tree — the drill exercises what shipped, not the
+# checkout this script happens to sit in. The leg's skip contract is the
+# script's own (loud, reasoned, exit 0) and classify_leg keeps it a SKIP:
+# counted, rendered distinctly, named in the record — never a pass.
+db_out="$(mktemp)"
+bash "$RIG_TREE/test/db-integration.sh" >"$db_out" 2>&1
+db_rc=$?
+case "$(classify_leg "$db_rc" "$db_out")" in
+  pass)
+    db_numbers="$(tail -1 "$db_out")"
+    ok "db round-trip: $db_numbers"
+    leg "test/db-integration.sh" "PASS — $db_numbers"
+    ;;
+  skip)
+    db_reason="$(grep -m1 '^skip:' "$db_out")"
+    skip "db round-trip did not run — $db_reason"
+    leg "test/db-integration.sh" "SKIPPED — ${db_reason#skip: }"
+    ;;
+  fail)
+    no "db round-trip FAILED (exit $db_rc) — tail: $(tail -3 "$db_out" | tr '\n' ' ')"
+    leg "test/db-integration.sh" "FAIL — exit $db_rc"
+    ;;
+esac
+rm -f "$db_out"
+
+# =============================================================================
+phase "Leg 3 — runner lifecycle against a fork"
+# =============================================================================
+# Register, take a job, deregister. The fork must carry a workflow_dispatch
+# workflow (default drill.yml) whose job runs-on the 'drill' label — see
+# drill/README.md. Tokens: RUNNER_TOKEN / RUNNER_REMOVE_TOKEN env, or minted
+# via an authenticated gh. Without a fork or a token source the leg SKIPS,
+# loudly, and the record says it did not run.
+if [ -z "$RUNNER_REPO" ]; then
+  skip "runner lifecycle: no --runner-repo fork given — the leg did not run"
+  leg "runner lifecycle" "SKIPPED — no fork provided"
+else
+  GH_OK=0
+  command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 && GH_OK=1
+  reg_token="${RUNNER_TOKEN:-}"
+  if [ -z "$reg_token" ] && [ "$GH_OK" -eq 1 ]; then
+    reg_token="$(gh api -X POST "repos/$RUNNER_REPO/actions/runners/registration-token" --jq .token 2>/dev/null)"
+  fi
+  if [ -z "$reg_token" ]; then
+    skip "runner lifecycle: no RUNNER_TOKEN and no authenticated gh to mint one — the leg did not run"
+    leg "runner lifecycle ($RUNNER_REPO)" "SKIPPED — no registration token source"
+  else
+    RUNNER_NAME="drill-$(hostname)-$$"
+    if RUNNER_TOKEN="$reg_token" run_logged /tmp/drill-runner-install.log \
+         rig runner install --repo "$RUNNER_REPO" --name "$RUNNER_NAME" --labels drill; then
+      ok "rig runner install --repo $RUNNER_REPO exited 0 (registered as $RUNNER_NAME)"
+    else
+      no "runner install FAILED — tail: $(tail -3 /tmp/drill-runner-install.log | tr '\n' ' ')"
+    fi
+    rig runner status 2>/dev/null | grep -q "$RUNNER_REPO" \
+      && ok "runner status names the fork: $RUNNER_REPO" \
+      || no "runner status does not name $RUNNER_REPO"
+
+    took_job=none
+    if [ "$GH_OK" -eq 1 ]; then
+      # Dispatch, then poll the newest run of that workflow to completion.
+      # ~5 min bound: a queued-forever run means the runner never picked it
+      # up, which is exactly what this check exists to catch.
+      if gh workflow run "$RUNNER_WORKFLOW" -R "$RUNNER_REPO" >/dev/null 2>&1; then
+        inf "dispatched $RUNNER_WORKFLOW on $RUNNER_REPO — waiting for the runner to take it (≤5 min)…"
+        took_job=timeout
+        for _i in $(seq 1 30); do
+          sleep 10
+          run_json="$(gh run list -R "$RUNNER_REPO" --workflow "$RUNNER_WORKFLOW" --limit 1 --json status,conclusion 2>/dev/null)"
+          case "$run_json" in
+            *'"status":"completed"'*)
+              case "$run_json" in
+                *'"conclusion":"success"'*) took_job=success ;;
+                *) took_job=failed ;;
+              esac
+              break ;;
+          esac
+        done
+      else
+        took_job=nodispatch
+      fi
+      case "$took_job" in
+        success) ok "the runner took a job and it succeeded ($RUNNER_WORKFLOW)" ;;
+        failed)  no "the dispatched job completed UNSUCCESSFULLY — the runner ran it, the workflow failed; read the run on $RUNNER_REPO" ;;
+        timeout) no "the dispatched job never completed within 5 min — the runner did not take it (is the workflow's runs-on label 'drill'?)" ;;
+        nodispatch) no "could not dispatch $RUNNER_WORKFLOW on $RUNNER_REPO — does the fork carry it, with workflow_dispatch? (see drill/README.md)" ;;
+      esac
+    else
+      skip "took a job: not attempted — no authenticated gh to dispatch $RUNNER_WORKFLOW with"
+    fi
+
+    rem_token="${RUNNER_REMOVE_TOKEN:-}"
+    if [ -z "$rem_token" ] && [ "$GH_OK" -eq 1 ]; then
+      rem_token="$(gh api -X POST "repos/$RUNNER_REPO/actions/runners/remove-token" --jq .token 2>/dev/null)"
+    fi
+    if [ -n "$rem_token" ]; then
+      RUNNER_REMOVE_TOKEN="$rem_token" rig runner remove >/dev/null 2>&1 \
+        && ok "rig runner remove deregistered cleanly" \
+        || no "runner remove FAILED"
+    else
+      rig runner remove --local >/dev/null 2>&1 \
+        && note "deregistered --local only (no removal token source) — delete the stale runner from $RUNNER_REPO's settings by hand" \
+        || no "runner remove --local FAILED"
+    fi
+    rig runner status >/dev/null 2>&1 \
+      && no "runner status still answers after remove — the deregistration did not take" \
+      || ok "runner status confirms: nothing registered"
+
+    leg "runner lifecycle ($RUNNER_REPO)" \
+      "$(case "$took_job" in
+           success) echo "PASS — registered, took a job, deregistered clean" ;;
+           none)    echo "PARTIAL — registered and deregistered; took a job: not attempted (no gh)" ;;
+           *)       echo "FAIL — see Failed below" ;;
+         esac)"
+  fi
+fi
+
+# =============================================================================
+phase "Summary"
+# =============================================================================
+printf '  %s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skipped"
+if [ "${#findings[@]}" -gt 0 ]; then
+  echo
+  printf '  %s\n' "${findings[@]}"
+fi
+
+mkdir -p "$(dirname "$RECORD")"
+emit_record "$RECORD"
+echo
+inf "record written: $RECORD"
+inf "commit it on the release branch as drills/$DRILL_VERSION.md — the"
+inf "drill-recorded gate reads that file and nothing else (drills/README.md)."
+[ "$fail" -eq 0 ]
