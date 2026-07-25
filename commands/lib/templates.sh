@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# The tenant-template REGISTRY (#110): resolve where role definitions come
-# from, parse a definition's template.env against an allowlist, and lint a
-# whole definition. Sourced by bootstrap-tenant.sh (the mint-time consumer)
-# and template-lint.sh (the registry repo's CI gate) — pure functions plus
-# one pin, no side effects at source time (repo precedent: runner-config,
-# and the tenant-config table this lib replaces).
+# The role-template REGISTRY (#110 tenants, #152 machines): resolve where
+# role definitions come from, parse a definition's template.env against an
+# allowlist, and lint a whole definition. Sourced by bootstrap-tenant.sh and
+# bootstrap.sh (the converge-time consumers) and template-lint.sh (the
+# registry repo's CI gate) — pure functions plus one pin, no side effects at
+# source time (repo precedent: runner-config, and the tenant-config table
+# this lib replaces).
 #
 # The registry moved out of rig's tree so mechanism and data can move at
 # different cadences (#109 is the evidence: adding kimi — pure data — meant
 # editing six files here). rig keeps the mechanism and this schema; the
-# definitions live in heavy-duty/rig-templates, one directory per role:
+# definitions live in heavy-duty/rig-templates, one directory per role. The
+# directory NAME claims the family (template_family below): '-box' dirs are
+# TENANT definitions, '-server' dirs (and the workstation carve-out) are
+# MACHINE definitions. A tenant definition:
 #
 #   <role>/template.env   KEY="value" data, parsed against the allowlist
 #                         below and NEVER sourced — a definition cannot
@@ -17,6 +21,12 @@
 #   <role>/install.sh     the CLI install (the one inherently executable part)
 #   <role>/creds.md       the per-vendor creds-free paragraph the context
 #                         renderer splices in
+#
+# A machine definition (#152) is traits + install: template.env carries
+# exactly the three trait knobs the bootstrap table carries (machine schema
+# below), install.sh is OPTIONAL (a traits-only role is legal — run as root,
+# last, on the converged machine when present), and creds.md is refused —
+# machine roles render no tenant context.
 #
 # THE SOURCE IS THREE KNOBS, precedence _DIR > _REF > pin:
 #   RIG_TEMPLATES_DIR    a local folder — bypasses the fetch entirely (the
@@ -43,6 +53,28 @@ RIG_TEMPLATES_PIN=be749f7fd1ff8dd7c2359bbce7fd6abd3f403eb0
 # KEY="value" — nothing else. Parsed by regex, never sourced.
 TEMPLATE_KEYS_REQUIRED=(USER CONTEXT_PATH CLI_NAME PATH_LINE)
 TEMPLATE_KEYS_OPTIONAL=(CLI_SRC NEEDS_NODE APT_EXTRAS)
+
+# The MACHINE-family schema (#152): exactly the three trait knobs the
+# bootstrap table carries, no optional keys — a machine-role definition is
+# traits + an optional install.sh (epic #151 D1), and the values are exactly
+# the flag enumerations bootstrap.sh enforces, so a definition can say
+# nothing a command line cannot.
+MACHINE_KEYS_REQUIRED=(ROOT_DOOR HOST JOIN)
+
+# template_family <role> — which schema a definition's directory name claims:
+# 'tenant' for the '-box' guests, 'machine' for the '-server' fleet roles
+# (both doctrine since rig#76), plus the exact name 'workstation' — epic #151
+# D5's carve-out (#152): somebody's own device is machine-family, and a
+# rename to fit the suffix rule would break every operator habit and doc for
+# zero gain. Anything else fails: no family, no schema.
+template_family() {
+  case "$1" in
+    workstation) printf 'machine\n' ;;
+    *-box)       printf 'tenant\n' ;;
+    *-server)    printf 'machine\n' ;;
+    *) return 1 ;;
+  esac
+}
 
 # templates_source_desc — where the resolved registry came from, for error
 # messages and logs: a misconfigured RIG_TEMPLATES_REPO must be visible in
@@ -128,6 +160,21 @@ templates_roles() {
   done
 }
 
+# templates_machine_roles <registry-dir> — the MACHINE-family roles a
+# registry defines: its machine-family directories carrying a template.env.
+# This list IS the body of bootstrap.sh's unknown-role refusal (#152),
+# exactly as templates_roles is the tenant one's — what the resolved source
+# actually contains, never a hardcoded set.
+templates_machine_roles() {
+  local d role
+  for d in "$1"/*/; do
+    [ -f "$d/template.env" ] || continue
+    role="$(basename "$d")"
+    [ "$(template_family "$role" || true)" = "machine" ] || continue
+    printf '%s\n' "$role"
+  done
+}
+
 # template_parse_env <template.env> — parse against the allowlist. Sets
 # TPL_USER, TPL_CONTEXT_PATH, TPL_CLI_NAME, TPL_CLI_SRC, TPL_PATH_LINE,
 # TPL_NEEDS_NODE (default no), TPL_APT_EXTRAS. Every refusal names the
@@ -206,6 +253,82 @@ template_parse_env() {
   done
 }
 
+# machine_template_parse_env <template.env> — the machine family's twin of
+# template_parse_env (#152): same grammar (KEY="value", '#' comments, blank
+# lines — parsed by regex, NEVER sourced), same every-refusal-names-its-key
+# discipline, validated against the machine schema. Sets MTPL_ROOT_DOOR,
+# MTPL_HOST, MTPL_JOIN. A machine template.env carrying tenant keys dies
+# here as unknown-key, exactly as a tenant one carrying machine keys dies
+# in template_parse_env. A separate function, not a parameterized one, on
+# purpose: the tenant parser's behavior is pinned byte-identical by the
+# existing suite, and threading two schemas' value shapes through one loop
+# buys nothing but the risk of bending it.
+# shellcheck disable=SC2034  # the MTPL_* globals are this function's OUTPUT, read by the sourcing script
+machine_template_parse_env() {
+  local file="$1" line key val n=0 seen=" " k ok
+  MTPL_ROOT_DOOR="" MTPL_HOST="" MTPL_JOIN=""
+  [ -f "$file" ] || { printf 'template.env missing: %s\n' "$file" >&2; return 1; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n+1))
+    case "$line" in ''|'#'*) continue ;; esac
+    if [[ ! "$line" =~ ^([A-Z_]+)=\"(.*)\"$ ]]; then
+      printf 'template.env:%d: not KEY="value": %s\n' "$n" "$line" >&2
+      return 1
+    fi
+    key="${BASH_REMATCH[1]}" val="${BASH_REMATCH[2]}"
+    ok=""
+    for k in "${MACHINE_KEYS_REQUIRED[@]}"; do
+      [ "$key" = "$k" ] && ok=1
+    done
+    [ -n "$ok" ] || { printf 'template.env:%d: unknown key: %s (allowed: %s)\n' \
+      "$n" "$key" "${MACHINE_KEYS_REQUIRED[*]}" >&2; return 1; }
+    case "$seen" in *" $key "*)
+      printf 'template.env:%d: duplicate key: %s\n' "$n" "$key" >&2; return 1 ;;
+    esac
+    seen="$seen$key "
+    case "$key" in
+      ROOT_DOOR) MTPL_ROOT_DOOR="$val" ;;
+      HOST)      MTPL_HOST="$val" ;;
+      JOIN)      MTPL_JOIN="$val" ;;
+    esac
+  done < "$file"
+  for k in "${MACHINE_KEYS_REQUIRED[@]}"; do
+    case "$seen" in *" $k "*) ;; *)
+      printf 'template.env: missing required key: %s\n' "$k" >&2; return 1 ;;
+    esac
+  done
+  # Value shapes — exactly the flag enumerations, each refusal naming its key.
+  case "$MTPL_ROOT_DOOR" in
+    closed|open) ;;
+    *) printf 'template.env: ROOT_DOOR: want closed or open, got: %s\n' "$MTPL_ROOT_DOOR" >&2; return 1 ;;
+  esac
+  case "$MTPL_HOST" in
+    yes|no) ;;
+    *) printf 'template.env: HOST: want yes or no, got: %s\n' "$MTPL_HOST" >&2; return 1 ;;
+  esac
+  case "$MTPL_JOIN" in
+    authkey|login) ;;
+    *) printf 'template.env: JOIN: want authkey or login, got: %s\n' "$MTPL_JOIN" >&2; return 1 ;;
+  esac
+}
+
+# machine_template_install <role-dir> <role> — the machine family's one
+# executable part (#152): run the definition's install.sh as the caller
+# (bootstrap runs it as root, LAST — after users, join, host setup — so a
+# failing install never leaves a machine half-joined in silence), from the
+# definition's own directory, with RIG_ROLE naming the role in an otherwise
+# inherited environment. stdin is /dev/null: the hook is non-interactive by
+# contract, and bootstrap's own stdin belongs to the pre-auth key prompt — a
+# prompting install must fail fast, never hang a converge. A traits-only
+# definition (no install.sh) is a silent no-op: that is the legal shape the
+# ported presets will take. Idempotence is the definition's contract, same
+# doctrine as the whole converge: safe to re-run.
+machine_template_install() {
+  local dir="$1" role="$2"
+  [ -e "$dir/install.sh" ] || return 0
+  ( cd "$dir" && RIG_ROLE="$role" bash ./install.sh </dev/null )
+}
+
 # render_tenant_context <role> <creds.md> — the agent-context file's
 # content, on stdout: the one file every agent reads before touching
 # anything. The skeleton is MECHANISM and lives here once — the box#80 guard
@@ -248,13 +371,35 @@ EOF
 # protects the registry, the mint-time parse protects a mint served through
 # RIG_TEMPLATES_REPO/_DIR that CI never saw.
 template_lint() {
-  local dir="${1%/}" role
+  local dir="${1%/}" role family
   role="$(basename "$dir")"
   [ -d "$dir" ] || { printf '%s: not a directory\n' "$dir" >&2; return 1; }
-  case "$role" in
-    *-box|*-server) ;;
-    *) printf '%s: role directories carry a family suffix (-box for box tenants, -server for fleet machines — rig#76)\n' "$role" >&2; return 1 ;;
-  esac
+  # Family detection is the directory name (#152): '-box' → tenant schema,
+  # '-server' → machine schema, plus the exact name 'workstation' → machine
+  # (epic #151 D5's carve-out, decided there — this arm is its one home).
+  if ! family="$(template_family "$role")"; then
+    printf '%s: role directories carry a family suffix (-box for box tenants, -server for fleet machines — rig#76; the one suffix-less machine role is workstation, #152)\n' "$role" >&2
+    return 1
+  fi
+  if [ "$family" = "machine" ]; then
+    # The machine family (#152): traits + an OPTIONAL install — a traits-only
+    # definition is legal (the ported presets are exactly that), but a present
+    # install.sh must be a real script, and creds.md is refused outright:
+    # machine roles render no tenant context, so a stray creds file in the
+    # registry would be a lie waiting for a splice.
+    machine_template_parse_env "$dir/template.env" || return 1
+    if [ -e "$dir/install.sh" ]; then
+      [ -s "$dir/install.sh" ] \
+        || { printf '%s: install.sh is empty — a traits-only machine role omits it entirely\n' "$role" >&2; return 1; }
+      head -n1 "$dir/install.sh" | grep -q '^#!' \
+        || { printf '%s: install.sh has no shebang\n' "$role" >&2; return 1; }
+    fi
+    if [ -e "$dir/creds.md" ]; then
+      printf '%s: creds.md is a tenant file — machine roles render no tenant context, and a stray creds file in the registry would be a lie waiting for a splice (#152)\n' "$role" >&2
+      return 1
+    fi
+    return 0
+  fi
   template_parse_env "$dir/template.env" || return 1
   [ -s "$dir/install.sh" ] \
     || { printf '%s: install.sh missing or empty\n' "$role" >&2; return 1; }
