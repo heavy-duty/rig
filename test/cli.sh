@@ -900,6 +900,202 @@ check "tenant: the marker write follows the context-file converge" \
 # shellcheck disable=SC2016
 check "tenant: the marker write is gated on the resolved root-door, not a spelling" 0 "" \
   grep -qxF 'if [ -z "$EXISTING_ROOT_DOOR" ]; then' "$ROOT/commands/bootstrap-tenant.sh"
+
+# --- machine roles from the registry (#152): traits + optional root install ---
+# The MACHINE half of the template family (epic #151): a '-server' definition
+# in the registry is the three trait knobs plus an optional install.sh run as
+# root, last — bootstrappable with zero rig code changes, while the six
+# built-in presets stay authoritative in their table until #154 retires it.
+# The real converge needs root and a tailnet — the drill's job — so the
+# harness proves the whole pre-root surface non-root and OFFLINE via
+# RIG_TEMPLATES_DIR fixtures: resolution, the parse, trait loading
+# (observable through the join-trait interplay below), the shadowing rule,
+# every refusal, the lint's machine arm, and the install hook's own
+# mechanics (a lib function, called directly).
+MREG="$(mktemp -d)"
+mkdir -p "$MREG/scratch-server"
+printf 'ROOT_DOOR="open"\nHOST="no"\nJOIN="authkey"\n' > "$MREG/scratch-server/template.env"
+mkdir -p "$MREG/laptop-server"
+printf 'ROOT_DOOR="closed"\nHOST="no"\nJOIN="login"\n' > "$MREG/laptop-server/template.env"
+mkdir -p "$MREG/hooked-server"
+printf 'ROOT_DOOR="open"\nHOST="no"\nJOIN="authkey"\n' > "$MREG/hooked-server/template.env"
+# The hook fixture proves all four contract facts at once: cwd is the
+# definition's dir, RIG_ROLE names the role, the caller's environment rides
+# through, and stdin is /dev/null (a prompting install fails fast, never
+# hangs a converge). Single quotes deliberate (SC2016): the $-expressions
+# expand when the HOOK runs the script, never in the harness.
+# shellcheck disable=SC2016
+printf '#!/usr/bin/env bash\n[ "$PWD" = "%s" ] || { echo "wrong cwd: $PWD"; exit 1; }\nif read -r _; then echo got-stdin; else echo no-stdin; fi\nprintf "hook: role=%%s caller=%%s\\n" "$RIG_ROLE" "${CALLER_VAR:-}"\n' \
+  "$MREG/hooked-server" > "$MREG/hooked-server/install.sh"
+mkdir -p "$MREG/broken-server"
+printf 'ROOT_DOOR="open"\nHOST="no"\nJOIN="authkey"\n' > "$MREG/broken-server/template.env"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$MREG/broken-server/install.sh"
+mkdir -p "$MREG/ajar-server"
+printf 'ROOT_DOOR="ajar"\nHOST="no"\nJOIN="authkey"\n' > "$MREG/ajar-server/template.env"
+mkdir -p "$MREG/badjoin-server"
+printf 'ROOT_DOOR="open"\nHOST="no"\nJOIN="ssh"\n' > "$MREG/badjoin-server/template.env"
+mkdir -p "$MREG/tenantkeys-server"
+printf 'USER="x"\nCONTEXT_PATH=".x/A.md"\nCLI_NAME="x"\nPATH_LINE="p"\n' > "$MREG/tenantkeys-server/template.env"
+mkdir -p "$MREG/machkeys-box"
+printf 'ROOT_DOOR="open"\nHOST="no"\nJOIN="authkey"\n' > "$MREG/machkeys-box/template.env"
+mkdir -p "$MREG/short-server"
+printf 'ROOT_DOOR="open"\nHOST="no"\n' > "$MREG/short-server/template.env"
+mkdir -p "$MREG/twice-server"
+printf 'ROOT_DOOR="open"\nHOST="no"\nJOIN="authkey"\nJOIN="login"\n' > "$MREG/twice-server/template.env"
+# The builtin-shadow fixture: same name as a table row, OPPOSITE join trait —
+# if the registry ever won, the TS_AUTHKEY interplay below would expose it.
+mkdir -p "$MREG/workload-server"
+printf 'ROOT_DOOR="closed"\nHOST="no"\nJOIN="login"\n' > "$MREG/workload-server/template.env"
+
+if [ "$(id -u)" -ne 0 ]; then
+  # Reaching the root check proves the whole pre-root surface passed: the
+  # charset, the resolution, the parse, the trait load and the flag loop.
+  check "machine: a traits-only definition reaches the root check" 1 "must run as root" \
+    env RIG_TEMPLATES_DIR="$MREG" TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" scratch-server --no-users
+  check "machine: a definition WITH install.sh reaches the root check" 1 "must run as root" \
+    env RIG_TEMPLATES_DIR="$MREG" TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" hooked-server --no-users
+  # The trait LOAD is observable non-root through the join trait: a set
+  # TS_AUTHKEY on join=login is a pre-root usage error, so the definition's
+  # JOIN="login" firing that refusal IS the proof its traits applied exactly
+  # as a table row's would (workstation earns the same refusal from its row).
+  check "machine: the definition's join trait applies (login + TS_AUTHKEY refused)" 2 "join=login is interactive" \
+    env RIG_TEMPLATES_DIR="$MREG" TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" laptop-server --no-users
+  # ...and a flag overrides the definition's trait, exactly as over a table row.
+  check "machine: a flag overrides the definition's trait" 1 "must run as root" \
+    env RIG_TEMPLATES_DIR="$MREG" TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" laptop-server --join authkey --no-users
+  # Downstream mechanism runs unchanged: the users contract (#51) gates a
+  # registry role exactly as it gates a table row.
+  check "machine: the users flag is still required" 2 "one of --users <path> or --no-users" \
+    env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" scratch-server
+  # THE SHADOWING RULE: a registry role named like a built-in never wins while
+  # the table stands (#154 retires it). The fixture's workload-server says
+  # join=login; the builtin row says authkey — so reaching the root check with
+  # TS_AUTHKEY set proves the TABLE answered, not the registry.
+  check "machine: a registry role shadowing a built-in never wins" 1 "must run as root" \
+    env RIG_TEMPLATES_DIR="$MREG" TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload-server --no-users
+  # ...and a built-in role never consults the registry at all: an unreachable
+  # source must not cost the six presets anything.
+  check "machine: a built-in role never consults the registry" 1 "must run as root" \
+    env RIG_TEMPLATES_DIR=/nonexistent/registry TS_AUTHKEY=x "$ROOT/commands/bootstrap.sh" workload-server --no-users
+else
+  echo "skip: machine registry non-root refusals (running as root)"
+fi
+# The unknown-role refusal names the built-ins, custom, the resolved source
+# and its machine roles — a misconfigured RIG_TEMPLATES_REPO/_REF/_DIR must
+# be visible in the error rather than looking like a typo.
+check "machine: the unknown-role refusal lists the source's machine roles" 2 "scratch-server" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" nosuch-server --no-users
+check "machine: the refusal names the built-ins and custom" 2 "control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" nosuch-server --no-users
+check "machine: the refusal names the resolved source" 2 "RIG_TEMPLATES_DIR" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" nosuch-server --no-users
+# The listing is machine-family ONLY: a '-box' dir in the same registry is a
+# tenant, and listing it as a machine role would send an operator down the
+# wrong family's path.
+# shellcheck disable=SC2016
+check "machine: the unknown-role listing is machine-family only" 0 "" \
+  bash -c '! env RIG_TEMPLATES_DIR="$1" "$2/commands/bootstrap.sh" nosuch-server --no-users 2>&1 | grep -qF "machkeys-box"' _ "$MREG" "$ROOT"
+# _DIR outranks _REF for machines exactly as for tenants: with both set, the
+# refusal lists the LOCAL fixture, so resolution never touched the network.
+check "machine: RIG_TEMPLATES_DIR outranks RIG_TEMPLATES_REF" 2 "scratch-server" \
+  env RIG_TEMPLATES_DIR="$MREG" RIG_TEMPLATES_REF=some-branch "$ROOT/commands/bootstrap.sh" nosuch-server --no-users
+check "machine: an unreachable RIG_TEMPLATES_DIR refuses loudly" 2 "not a directory" \
+  env RIG_TEMPLATES_DIR=/nonexistent/registry "$ROOT/commands/bootstrap.sh" scratch-server --no-users
+# The suffix rule admits any lowercase name, so a crafted one dies at the
+# charset gate BEFORE it is ever a path component (the valid_version
+# discipline) — and before any registry resolution.
+check "machine: a crafted role name dies at the charset gate" 2 "unknown role" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" '../scratch-server' --no-users
+# A malformed definition is refused at bootstrap BY KEY — same never-sourced
+# parse discipline as the tenant side, protecting a converge served through
+# a source the registry's CI never saw.
+check "machine: a bad ROOT_DOOR value is refused by key" 2 "ROOT_DOOR: want closed or open" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" ajar-server --no-users
+check "machine: a bad JOIN value is refused by key" 2 "JOIN: want authkey or login" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" badjoin-server --no-users
+check "machine: tenant keys in a machine definition are refused as unknown" 2 "unknown key: USER" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" tenantkeys-server --no-users
+check "machine: a missing required key is refused by name" 2 "missing required key: JOIN" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" short-server --no-users
+check "machine: a duplicate key is refused with its line" 2 "duplicate key: JOIN" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" twice-server --no-users
+# ...and the mirror: machine keys in a TENANT definition die in the tenant
+# parser the same way (the two schemas never blur).
+check "machine: machine keys in a tenant definition are refused as unknown" 2 "unknown key: ROOT_DOOR" \
+  env RIG_ROLE_MARKER=/nonexistent/rig-role RIG_TEMPLATES_DIR="$MREG" \
+  "$ROOT/commands/bootstrap-tenant.sh" machkeys-box
+# custom is mechanism, not content, and survives the registry untouched: it
+# still presets nothing and collects every missing flag in one round trip.
+check "machine: custom still collects every missing flag at once" 2 "missing: --hostname --root-door --host --join" \
+  env RIG_TEMPLATES_DIR="$MREG" "$ROOT/commands/bootstrap.sh" custom --no-users
+
+# The install hook's mechanics, off the lib directly (the bootstrap path to
+# it is root-gated; the drill owns the live proof). The fixture asserts cwd,
+# RIG_ROLE, the inherited environment, and the /dev/null stdin in one run.
+# shellcheck disable=SC2016
+check "machine: the hook runs from the definition dir with RIG_ROLE set" 0 "hook: role=hooked-server caller=rides" \
+  env CALLER_VAR=rides bash -c '. "$1/commands/lib/templates.sh"; machine_template_install "$2/hooked-server" hooked-server' _ "$ROOT" "$MREG"
+# shellcheck disable=SC2016
+check "machine: the hook is non-interactive (stdin is /dev/null)" 0 "no-stdin" \
+  bash -c 'printf "would-be-eaten\n" | { . "$1/commands/lib/templates.sh"; machine_template_install "$2/hooked-server" hooked-server; }' _ "$ROOT" "$MREG"
+# shellcheck disable=SC2016
+check "machine: a nonzero install.sh propagates" 1 "" \
+  bash -c '. "$1/commands/lib/templates.sh"; machine_template_install "$2/broken-server" broken-server' _ "$ROOT" "$MREG"
+# shellcheck disable=SC2016
+check "machine: a traits-only definition is a silent no-op for the hook" 0 "" \
+  bash -c '. "$1/commands/lib/templates.sh"; machine_template_install "$2/scratch-server" scratch-server' _ "$ROOT" "$MREG"
+# The bootstrap side of the hook, grep-pinned where the harness cannot run
+# it: the failure die names role and source on one line, and the hook sits
+# AFTER the users phase — last, so a failing install never leaves a machine
+# half-joined in silence (the ordering is the safety property, same as the
+# tenant marker-after-context assert above).
+check "machine: the install-failure refusal names role and source" 0 "" \
+  grep -qE "install\.sh failed.*templates_source_desc" "$ROOT/commands/bootstrap.sh"
+mach_users_at="$(grep -n 'users-apply.sh" --file' "$ROOT/commands/bootstrap.sh" | head -n1 | cut -d: -f1)"
+mach_hook_at="$(grep -n '^  machine_template_install ' "$ROOT/commands/bootstrap.sh" | head -n1 | cut -d: -f1)"
+check "machine: the install hook runs after the users phase" \
+  0 "" test "${mach_users_at:-999999}" -lt "${mach_hook_at:-0}"
+# The data file is PARSED, never executed — bootstrap.sh now consumes the
+# registry too, so it joins the never-sourced pin the tenant path carries.
+check "machine: template.env is never sourced by bootstrap.sh" 1 "" \
+  grep -nE '(source|^[[:space:]]*\.)[[:space:]]+[^#]*template\.env' "$ROOT/commands/bootstrap.sh"
+
+# template-lint's machine arm: install.sh optional (a traits-only definition
+# is legal — the ported presets will be exactly that), creds.md refused, and
+# the workstation carve-out (epic #151 D5) is machine-family by exact name.
+check "template-lint: a traits-only '-server' definition passes" 0 "OK: " \
+  "$ROOT/commands/template-lint.sh" "$MREG/scratch-server"
+check "template-lint: a machine definition with install.sh passes" 0 "OK: " \
+  "$ROOT/commands/template-lint.sh" "$MREG/hooked-server"
+MREG_WKST="$(mktemp -d)"
+mkdir -p "$MREG_WKST/workstation"
+printf 'ROOT_DOOR="closed"\nHOST="yes"\nJOIN="login"\n' > "$MREG_WKST/workstation/template.env"
+check "template-lint: a valid workstation dir passes (the D5 carve-out)" 0 "OK: " \
+  "$ROOT/commands/template-lint.sh" "$MREG_WKST/workstation"
+printf 'USER="x"\nCONTEXT_PATH=".x/A.md"\nCLI_NAME="x"\nPATH_LINE="p"\n' > "$MREG_WKST/workstation/template.env"
+check "template-lint: a workstation dir with tenant keys is refused" 1 "unknown key: USER" \
+  "$ROOT/commands/template-lint.sh" "$MREG_WKST/workstation"
+check "template-lint: a machine dir with tenant keys is refused" 1 "unknown key: USER" \
+  "$ROOT/commands/template-lint.sh" "$MREG/tenantkeys-server"
+check "template-lint: a tenant dir with machine keys is refused" 1 "unknown key: ROOT_DOOR" \
+  "$ROOT/commands/template-lint.sh" "$MREG/machkeys-box"
+mkdir -p "$MREG/creds-server"
+cp "$MREG/scratch-server/template.env" "$MREG/creds-server/"
+printf 'x\n' > "$MREG/creds-server/creds.md"
+check "template-lint: a machine dir carrying creds.md is refused" 1 "creds.md is a tenant file" \
+  "$ROOT/commands/template-lint.sh" "$MREG/creds-server"
+mkdir -p "$MREG/noshebang-server"
+cp "$MREG/scratch-server/template.env" "$MREG/noshebang-server/"
+printf 'exit 0\n' > "$MREG/noshebang-server/install.sh"
+check "template-lint: a machine install.sh without a shebang is refused" 1 "no shebang" \
+  "$ROOT/commands/template-lint.sh" "$MREG/noshebang-server"
+mkdir -p "$MREG/emptyinstall-server"
+cp "$MREG/scratch-server/template.env" "$MREG/emptyinstall-server/"
+: > "$MREG/emptyinstall-server/install.sh"
+check "template-lint: an empty machine install.sh is refused" 1 "install.sh is empty" \
+  "$ROOT/commands/template-lint.sh" "$MREG/emptyinstall-server"
+rm -rf "$MREG" "$MREG_WKST"
+
 check "coolify: version required, exit 2"  2 "--version"      "$ROOT/commands/coolify-install.sh"
 check "coolify: --help exits 0"            0 "usage:"         "$ROOT/commands/coolify-install.sh" --help
 check "coolify: version needs value"       2 "needs a value"  "$ROOT/commands/coolify-install.sh" --version
