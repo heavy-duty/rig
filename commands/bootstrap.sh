@@ -12,6 +12,8 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 . "$HERE/lib/users-config.sh"    # parse_users_file — the --users PRE-FLIGHT only
 # shellcheck source=SCRIPTDIR/lib/manifest.sh
 . "$HERE/lib/manifest.sh"        # manifest_stamp — provenance, written beside the marker
+# shellcheck source=SCRIPTDIR/lib/templates.sh
+. "$HERE/lib/templates.sh"       # templates_resolve / machine_template_parse_env — registry machine roles (#152)
 # The users lib is sourced for validation, never for convergence: `users apply`
 # stays the single owner of what a users file DOES to a box (#51). Bootstrap
 # borrows the parser so a typo'd users file is caught in the same breath as a
@@ -80,6 +82,16 @@ custom presets nothing and requires --hostname plus all three traits.
   dev-server             closed     yes   authkey
   workstation            closed     yes   login
 
+Machine roles can also come from the TEMPLATE REGISTRY (#152): a '-server'
+definition in heavy-duty/rig-templates is the three traits (template.env:
+ROOT_DOOR, HOST, JOIN — same values as the flags) plus an optional
+install.sh, run as root from the definition's dir as bootstrap's last
+phase. A built-in role above always wins over a same-named registry role.
+The source is the same three knobs the tenant roles resolve:
+RIG_TEMPLATES_DIR > RIG_TEMPLATES_REF (of RIG_TEMPLATES_REPO) > the pin in
+lib/templates.sh; an unknown role's refusal lists what the resolved source
+actually defines.
+
 THE SUFFIX NAMES THE FAMILY, not the door policy. '-server' means this role builds a
 fleet MACHINE — a tailnet node rig converges; '-box' (the tenant roles) means a
 GUEST a box mints. Two families lived in one flat namespace and nothing in a
@@ -136,7 +148,15 @@ case "$ROLE" in
     exec "$HERE/bootstrap-tenant.sh" "$@" ;;
   -h|--help) usage; exit 0 ;;
   "") usage >&2; die "role required (control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom — or a '-box' tenant role from the template registry, e.g. claude-box)" 2 ;;
-  *) die "unknown role: $ROLE (want control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom — or a '-box' tenant role from the template registry, e.g. claude-box)" 2 ;;
+  *)
+    # The REGISTRY arm (#152): a role that is neither a built-in row, nor
+    # custom, nor a '-box' tenant is looked up among the resolved registry's
+    # MACHINE-family definitions — traits + an optional root-run install
+    # (epic #151 D1). The lookup itself happens in the traits step below,
+    # where a table row would land; the case order above is the shadowing
+    # rule: a registry role named like a built-in never wins while the
+    # table stands (#154 retires it).
+    shift ;;
 esac
 
 # Role→traits map — the single place a role's shape is declared (issue #26).
@@ -144,6 +164,7 @@ esac
 # so a flag override changes behavior without a new role, and custom exists
 # for the shape nobody foresaw — it declares nothing and must state all three.
 ROOT_DOOR="" HOST="" JOIN=""
+MACHINE_TPL_DIR=""
 case "$ROLE" in
   control-plane-server) ROOT_DOOR=open   HOST=no  JOIN=authkey ;;
   workload-server)      ROOT_DOOR=open   HOST=no  JOIN=authkey ;;
@@ -156,6 +177,42 @@ case "$ROLE" in
   dev-server)           ROOT_DOOR=closed HOST=yes JOIN=authkey ;;
   workstation)          ROOT_DOOR=closed HOST=yes JOIN=login   ;;
   custom)        ;;
+  *)
+    # A REGISTRY machine role (#152): resolve the same three knobs the tenant
+    # family resolves (RIG_TEMPLATES_DIR > RIG_TEMPLATES_REF > the in-tree
+    # pin) and look the role up among the source's MACHINE-family dirs. Found
+    # → its traits load exactly as a table row would, and every mechanism
+    # below (flag overrides, hostname default, users, join, host) runs
+    # unchanged; its optional install.sh runs as root at the very end. The
+    # parse is the same never-sourced discipline as the tenant side, and it
+    # all happens before the root check, so every refusal is testable
+    # non-root, offline, via RIG_TEMPLATES_DIR fixtures.
+    BUILTIN_ROLES="control-plane-server|workload-server|runner-server|staging-server|dev-server|workstation|custom"
+    # The suffix rule admits any name here, so the charset is pinned before
+    # the role is ever used as a path component: a crafted name dies HERE,
+    # never in a registry lookup (the valid_version discipline, bin/rig).
+    [[ "$ROLE" =~ ^[a-z][a-z0-9-]*$ ]] \
+      || die "unknown role: $ROLE (want $BUILTIN_ROLES — or a registry role: a '-server' machine definition, or a '-box' tenant)" 2
+    trap '[ -n "$TEMPLATES_TMP" ] && rm -rf "$TEMPLATES_TMP"' EXIT
+    if ! templates_resolve; then
+      # An explicit override that fails is the operator's whole answer
+      # (tenant parity: they named a source and it is unreachable). The
+      # DEFAULT pin failing to fetch must not mask the likelier fact — this
+      # role is simply unknown — so that refusal leads with it.
+      [ -z "${RIG_TEMPLATES_DIR:-}${RIG_TEMPLATES_REF:-}${RIG_TEMPLATES_REPO:-}" ] \
+        || die "cannot resolve the template registry ($(templates_source_desc)) — see above" 2
+      die "unknown role: $ROLE (want $BUILTIN_ROLES — or a registry machine role), and the template registry ($(templates_source_desc)) is unreachable (see above), so its machine roles cannot be listed. RIG_TEMPLATES_DIR=<dir> serves one offline." 2
+    fi
+    if [ "$(template_family "$ROLE" || true)" = "machine" ] && [ -f "$REGISTRY_DIR/$ROLE/template.env" ]; then
+      machine_template_parse_env "$REGISTRY_DIR/$ROLE/template.env" \
+        || die "invalid definition for $ROLE in $(templates_source_desc) — the failing key is named above. The registry's CI lints every PR ('rig template-lint'); a malformed definition reaching a bootstrap means the source above was never linted." 2
+      ROOT_DOOR="$MTPL_ROOT_DOOR" HOST="$MTPL_HOST" JOIN="$MTPL_JOIN"
+      MACHINE_TPL_DIR="$REGISTRY_DIR/$ROLE"
+      log "role ${ROLE} from the registry ($(templates_source_desc)): root-door=${ROOT_DOOR} host=${HOST} join=${JOIN}$([ -e "$MACHINE_TPL_DIR/install.sh" ] && printf ', with install.sh' || printf ', traits-only')"
+    else
+      die "unknown role: $ROLE — the built-in machine roles are $BUILTIN_ROLES, and the resolved registry ($(templates_source_desc)) defines machine roles: $(templates_machine_roles "$REGISTRY_DIR" | tr '\n' ' ')— a '-box' name would be a tenant. A misconfigured RIG_TEMPLATES_REPO/_REF/_DIR looks exactly like this; check the source before the spelling." 2
+    fi
+    ;;
 esac
 
 # custom has no hostname default: a made-up name on a made-up shape helps nobody.
@@ -782,6 +839,26 @@ fi
 if [ -n "$USERS_FILE" ]; then
   log "converging operators from ${USERS_FILE} (rig users apply)"
   "$HERE/users-apply.sh" --file "$USERS_FILE"
+fi
+
+# --- the definition's install hook (registry machine roles only, #152) ---------
+# LAST on purpose — after the join, the marker, the host extra, and the users
+# phase — so a failing install never leaves the machine half-joined in
+# silence: everything rig owes the box is converged and asserted by the time
+# the definition's own payload runs. It runs AS ROOT, from the definition's
+# dir in the resolved registry, with RIG_ROLE in an otherwise inherited
+# environment, stdin /dev/null (non-interactive by contract) — the trade
+# epic #151 D1 states in bold: a registry definition executes as root on
+# tailnet-joined METAL, which is why the default ref is a reviewed in-tree
+# pin and install.sh diffs there are the highest-trust review surface in the
+# org. A nonzero exit fails the bootstrap loudly, naming role and source.
+# Idempotence is the definition's contract, same doctrine as the whole
+# converge. The six built-in roles never carry a definition, so this block
+# is a no-op for them.
+if [ -n "$MACHINE_TPL_DIR" ] && [ -e "$MACHINE_TPL_DIR/install.sh" ]; then
+  log "running ${ROLE}'s install.sh (the definition's one executable part, as root)"
+  machine_template_install "$MACHINE_TPL_DIR" "$ROLE" \
+    || die "${ROLE}'s install.sh failed (role ${ROLE}, definition from $(templates_source_desc)) — the OS, join, marker and users above are already converged; fix the definition and re-run"
 fi
 
 log "done — role ${ROLE}, hostname ${TS_HOSTNAME}"
