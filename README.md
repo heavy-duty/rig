@@ -248,6 +248,46 @@ neither and are treated as unknown, never as permission to remove a join.
 Written post-join and cmp-guarded, so a marker never describes a box that
 failed to become what it claims.
 
+#### Machine roles from the template registry
+
+Machine roles can also come from the
+**[heavy-duty/rig-templates](https://github.com/heavy-duty/rig-templates)
+registry** (#152) — the same mechanism/data split the box tenants use (see
+*the box tenants* below), for the machine family: a role that is neither a
+built-in row above, nor `custom`, nor a `-box` tenant is looked up among the
+resolved registry's machine-family definitions before it is refused. A
+machine definition is **traits + optional install** — `template.env` carries
+exactly the three trait knobs the table above carries (`ROOT_DOOR`, `HOST`,
+`JOIN`, same values as the flags; parsed against that allowlist and never
+sourced), and an optional `install.sh`. A traits-only definition is legal —
+its traits load exactly as a table row would, flag overrides, hostname
+default, users contract and all. Family detection is the directory name:
+`-box` dirs are tenants, `-server` dirs are machines (`workstation` is the
+one suffix-less machine name, carved out by exact match). The registry
+source is the same three knobs, precedence high to low: `RIG_TEMPLATES_DIR`
+> `RIG_TEMPLATES_REF` (of `RIG_TEMPLATES_REPO`) > the in-tree pin — and an
+unknown role's refusal lists what the resolved source actually defines,
+beside the built-ins.
+
+When the definition carries `install.sh`, bootstrap runs it **as root,
+last** — after the join, the marker, the box install and the users phase, so
+a failing install never leaves a machine half-joined in silence. It runs
+from the definition's directory in the resolved registry, with `RIG_ROLE`
+naming the role in an otherwise inherited environment, stdin `/dev/null`
+(non-interactive by contract); a nonzero exit fails the bootstrap loudly,
+naming the role and the source. Idempotence is the definition's contract,
+same as the whole converge. **The trust sentence, same bold as the tenant
+one below: a machine definition's `install.sh` executes as root on
+tailnet-joined metal.** The default ref is the SHA pin reviewed into rig's
+tree by ordinary PR — the same trust as rig's own tarball — and
+`RIG_TEMPLATES_REF`/`_DIR` overrides are the operator's own act; `install.sh`
+diffs in the registry remain the highest-trust review surface in the org.
+
+Two boundaries hold until their issues land: the six built-in presets stay
+authoritative in their table — **a registry role shadowing a built-in name
+never wins** — until #154 retires the table, and converging at the default
+pin still fetches until #153 ships the pinned registry with rig itself.
+
 ### `rig bootstrap --undo`
 
 ```sh
