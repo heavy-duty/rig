@@ -4,6 +4,39 @@ History before 0.1.0 lives in git — rig grew its version surface (`VERSION`,
 `rig --version`, the side-by-side `versions/<v>` install layout; #35/#36)
 on the way to cutting its first release, and this file starts there.
 
+## 0.4.0 — 2026-09-03
+
+### Added
+
+- Releases publish an offline `rig-<version>.sh` installer with a checksum, source provenance, and the pinned template registry (#219).
+
+### Changed
+
+- The drill drills the tree it ships in: it stages that tree and installs from it, never over the network (#220).
+- A drill record's rig fields are measured from the installed tree's `VERSION`, `INSTALLED_FROM` and `SOURCE_COMMIT`, never echoed from an argument (#220).
+- Bootstrapped hosts install box 0.10.0 (#207).
+- Ceremony automation and doctrine are pinned to 0.7.7, so a taxonomy bootstrap press resolves the `operator` label row (#201).
+- The release drill runs without a checkout, derives operators from GitHub keys, refuses invalid entry paths before credentials, and prints its complete record (#195).
+
+### Fixed
+
+- `drill/drill.sh` ships executable, so the documented `<root>/current/drill/drill.sh` runs as typed instead of exiting 126 (#220).
+- The drill resolves `RIG_HOME` before it judges it, so a traversal spelling such as `/opt/rig/../..` is refused as the `/` it actually is rather than passing a check on its spelling; the resolved path is what the drill wipes, installs to, and names in the refusal (#220).
+- Artifact installs retain durable provenance and use their carried template snapshot without GitHub access (#219).
+- Rig's tenant help and layering docs no longer say blank box seeds include rig (#216).
+- A box tenant is documented as converged by hand from `box root`, not
+  auto-converged by box at mint (#210).
+- Documented root-in-a-guest commands reach root through `box root`, never
+  `box shell` plus `sudo rig` (#210).
+- `rig users apply` names box 0.10.0's `box-profile` placement profile (#209).
+- Drill instructions use box 0.10.0's mint syntax and current candidate pin (#208).
+
+### Removed
+
+- BREAKING: The drill's `--rig-repo` and `--rig-ref` flags, and the `RIG_REPO`/`RIG_REF` variables behind them, are gone (#220).
+- BREAKING: `rig coolify install`, `rig coolify backup install`, and the Coolify drill leg are removed; the remaining db drill provisions Docker directly (#194).
+- BREAKING: The `rig runner` command family and runner release-drill leg are removed. The `runner-server` convergence role remains. (#193).
+
 ## 0.3.2 — 2026-08-21
 
 ### Added
